@@ -39,7 +39,7 @@ case $OS in
         PLUGIN_DIR="$HOME/.local/lib/wireshark/plugins"
         ;;
     macos)
-        PLUGIN_DIR="$HOME/.config/wireshark/plugins"
+        PLUGIN_DIR="$HOME/.local/lib/wireshark/plugins"
         ;;
     windows)
         PLUGIN_DIR="$APPDATA/Wireshark/plugins"
