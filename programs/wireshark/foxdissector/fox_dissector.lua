@@ -1,7 +1,9 @@
 -- ============================================================
 -- Oracle ESCHER/FOX Protocol Dissector
--- Converted from C++/C Wireshark plugin (escherBridge.cc/fox.c)
+--
 -- Supports both SPARC (big-endian) and x86 Linux (little-endian)
+--
+-- © COPYRIGHT: Blue Bridge Software Ltd - 2026
 -- ============================================================
 
 local fox_proto = Proto("FOX", "FOX Protocol")
@@ -11,7 +13,7 @@ local fox_proto = Proto("FOX", "FOX Protocol")
 local ALIGN_SIZE = 4
 local EXT_HEADER_BLOCK_ID = 0xFFFE
 local NEW_DIRTY_MASK = 0x8001
-local DEFAULT_PORT = 1700  -- From original: DEFAULT_PORT_NUMBER = 1700
+local DEFAULT_PORT = 1700  -- DEFAULT_PORT_NUMBER = 1700
 
 -- ================= TYPE CODES =================
 
@@ -468,7 +470,7 @@ end
 
 -- Register the dissector
 local tcp_port = DissectorTable.get("tcp.port")
-tcp_port:add(DEFAULT_PORT, fox_proto)  -- Default port 1700
+tcp_port:add(DEFAULT_PORT, fox_proto)  -- DEFAULT_PORT_NUMBER = 1700
 tcp_port:add(5000, fox_proto)  -- Common test port
 tcp_port:add(5001, fox_proto)  -- Common test port
 

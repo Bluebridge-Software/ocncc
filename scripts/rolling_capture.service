@@ -1,0 +1,29 @@
+[Unit]
+Description=Rolling Multi-Interface Packet Capture (dumpcap)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pcap
+Group=pcap
+ExecStart=/usr/local/bin/rolling-capture.sh
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+Nice=-5
+
+# Security Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictRealtime=true
+RestrictNamespaces=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

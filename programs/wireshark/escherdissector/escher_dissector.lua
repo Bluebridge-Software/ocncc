@@ -1,11 +1,12 @@
 -- ============================================================
 -- Oracle ESCHER Protocol Dissector
--- Converted from C++/C Wireshark plugin (decodeEscher.cc/escher.c)
 -- 
 -- This is the GENERIC ESCHER dissector (port 1500)
 -- Separate from FOX dissector (port 1700)
 -- 
 -- Supports both SPARC (big-endian) and x86 Linux (little-endian)
+--
+-- © COPYRIGHT: Blue Bridge Software Ltd - 2026
 -- ============================================================
 
 local escher_proto = Proto("ESCHER", "ESCHER Protocol")
@@ -15,7 +16,7 @@ local escher_proto = Proto("ESCHER", "ESCHER Protocol")
 local ALIGN_SIZE = 4
 local EXT_HEADER_BLOCK_ID = 0xFFFE
 local NEW_DIRTY_MASK = 0x8001
-local DEFAULT_PORT = 1500  -- From C++: const int DEFAULT_PORT_NUMBER = 1500
+local DEFAULT_PORT = 1500  -- DEFAULT_PORT_NUMBER = 1500
 
 -- ================= TYPE CODES =================
 
@@ -447,7 +448,7 @@ end
 local tcp_port = DissectorTable.get("tcp.port")
 local udp_port = DissectorTable.get("udp.port")
 
--- Register on default port 1500 (from C++: DEFAULT_PORT_NUMBER = 1500)
+-- Register on default port 1500 (DEFAULT_PORT_NUMBER = 1500)
 tcp_port:add(DEFAULT_PORT, escher_proto)
 udp_port:add(DEFAULT_PORT, escher_proto)
 
@@ -457,4 +458,4 @@ tcp_port:add(5001, escher_proto)
 udp_port:add(5000, escher_proto)
 udp_port:add(5001, escher_proto)
 
-print("ESCHER Protocol Dissector Loaded (port " .. DEFAULT_PORT .. ", generic Escher)")
+print("ESCHER Protocol Dissector Loaded (port " .. DEFAULT_PORT .. ")")
