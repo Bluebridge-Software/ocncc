@@ -1,22 +1,109 @@
 -- ============================================================
--- Oracle ESCHER Protocol Dissector
+-- Oracle ESCHER Protocol Dissector with Symbol Mapping
+-- Converted from C++/C Wireshark plugin (decodeEscher.cc/escher.c)
 -- 
 -- This is the GENERIC ESCHER dissector (port 1500)
--- Separate from FOX dissector (port 1700)
--- 
--- Supports both SPARC (big-endian) and x86 Linux (little-endian)
---
--- © COPYRIGHT: Blue Bridge Software Ltd - 2026
+-- Now includes symbol mapping for human-friendly display
 -- ============================================================
 
 local escher_proto = Proto("ESCHER", "ESCHER Protocol")
+
+-- ================= SYMBOL MAPPING =================
+-- Maps truncated wire format symbols to full 4-character names
+-- Extracted from C++ ESCHER_SYMBOL definitions
+
+local SYMBOL_MAP = {
+    -- Core message structure
+    ["AC@"] = "ACTN",  -- Action
+    ["TY@"] = "TYPE",  -- Type
+    ["BO@"] = "BODY",  -- Body
+    ["HE@"] = "HEAD",  -- Header
+    
+    -- Actions
+    ["RE@"] = "REQ ",  -- Request
+    ["NA@"] = "NACK",  -- Negative Ack
+    ["EX@"] = "EXCP",  -- Exception
+    ["AB@"] = "ABRT",  -- Abort
+    
+    -- Header fields
+    ["SV@"] = "SVID",  -- Server ID
+    ["CM@"] = "CMID",  -- Call/Message ID
+    ["DA@"] = "DATE",  -- Date
+    ["US@"] = "USEC",  -- Microseconds
+    ["VE@"] = "VER ",  -- Version
+    ["DU@"] = "DUP ",  -- Duplicate
+    
+    -- Message types
+    ["BE@"] = "BEG ",  -- Begin
+    ["CH@"] = "CHKD",  -- Check Dialect
+    ["TR@"] = "TRAN",  -- Transaction
+    ["CC@"] = "CCDR",  -- CDR
+    ["AT@"] = "ATC ",  -- Apply Tariff Charge
+    ["IR"] = "IR  ",   -- Initial Reservation
+    ["SR"] = "SR  ",   -- Subsequent Reservation
+    ["CR"] = "CR  ",   -- Commit Reservation
+    ["RR"] = "RR  ",   -- Revoke Reservation
+    ["WG@"] = "WGR ",  -- Wallet General Recharge
+    ["WI"] = "WI  ",   -- Wallet Info
+    ["WU"] = "WU  ",   -- Wallet Update
+    ["VI"] = "VI  ",   -- Voucher Info
+    ["VU"] = "VU  ",   -- Voucher Update
+    ["VR"] = "VR  ",   -- Voucher Redeem
+    ["CV@"] = "CVR ",  -- Commit Voucher Redeem
+    ["RV@"] = "RVR ",  -- Revoke Voucher Redeem
+    
+    -- Body fields
+    ["CO@"] = "CODE",  -- Code
+    ["WH@"] = "WHAT",  -- What (error message)
+    ["WA@"] = "WALT",  -- Wallet ID
+    ["VC@"] = "VCHR",  -- Voucher ID
+    ["VN@"] = "VNUM",  -- Voucher Number
+    ["NA@"] = "NAME",  -- Name
+    ["HT@"] = "HTBT",  -- Heartbeat
+    ["CL@"] = "CLI ",  -- Calling Line ID
+    ["AR@"] = "AREF",  -- Account Reference
+    ["AM@"] = "AMNT",  -- Amount
+    
+    -- States
+    ["AC@"] = "ACTV",  -- Active (note: conflicts with ACTN, context-dependent)
+    ["DO@"] = "DORM",  -- Dormant
+    ["FR@"] = "FROZ",  -- Frozen
+    ["PR@"] = "PREU",  -- PreUse
+    
+    -- Additional common symbols
+    ["BA@"] = "BALC",  -- Balance
+    ["BK@"] = "BKID",  -- Booking ID
+    ["AA@"] = "AASS",  -- Account Association
+    ["AE@"] = "AEXP",  -- Account Expiry
+    ["AP@"] = "APOL",  -- Account Policy
+    ["AS@"] = "ASWS",  -- Account Status
+    ["AV@"] = "AVOU",  -- Account Voucher
+    ["AX@"] = "AXPC",  -- Account Extra
+    ["BB@"] = "BBDS",  -- Balance Details
+    ["BC@"] = "BCOR",  -- Balance Correction
+    ["BD@"] = "BDVR",  -- Balance Override
+    ["BN@"] = "BNEW",  -- Balance New
+    ["BP@"] = "BPIN",  -- Balance PIN
+    ["BQ@"] = "BQUA",  -- Balance Qualifier
+    ["BT@"] = "BKTS",  -- Booking Timestamp
+    ["BV@"] = "BOVR",  -- Balance Override
+    ["CD"] = "CD  ",   -- Card (no truncation)
+    ["CE@"] = "CEXP",  -- Card Expiry
+    ["CN@"] = "CNUM",  -- Card Number
+    ["CP@"] = "CPIN",  -- Card PIN
+    ["CT@"] = "CTYP",  -- Card Type
+    ["DI@"] = "DISO",  -- Discount
+    ["DL@"] = "DLTD",  -- Deleted
+    ["DN"] = "DN  ",   -- DN (no truncation)
+    ["DS@"] = "DSOT",  -- Discount Type
+}
 
 -- ================= CONFIGURATION =================
 
 local ALIGN_SIZE = 4
 local EXT_HEADER_BLOCK_ID = 0xFFFE
 local NEW_DIRTY_MASK = 0x8001
-local DEFAULT_PORT = 1500  -- DEFAULT_PORT_NUMBER = 1500
+local DEFAULT_PORT = 1500
 
 -- ================= TYPE CODES =================
 
@@ -32,7 +119,6 @@ local RAW_TYPE    = 0x08
 
 -- ================= PROTOCOL FIELDS =================
 
--- Core fields
 local f_length      = ProtoField.uint16("escher.length", "Length", base.DEC)
 local f_num_items   = ProtoField.uint16("escher.num_items", "Items", base.DEC)
 local f_ext_length  = ProtoField.uint32("escher.ext_length", "Extended Length", base.DEC)
@@ -44,7 +130,6 @@ local f_typecode    = ProtoField.uint8("escher.typecode", "Type", base.HEX, {
     [0x04]="FLOAT", [0x05]="STRING", [0x06]="ARRAY", [0x07]="MAP", [0x08]="RAW"
 })
 
--- Value fields
 local f_int         = ProtoField.int32("escher.int", "Integer", base.DEC)
 local f_float       = ProtoField.double("escher.float", "Float")
 local f_string      = ProtoField.string("escher.string", "String")
@@ -68,7 +153,7 @@ local function is_dirty(x)
     return bit.band(x, NEW_DIRTY_MASK) == NEW_DIRTY_MASK
 end
 
--- Decode symbol (4 bytes to ASCII)
+-- Decode symbol from 32-bit value
 local function decode_symbol(val)
     local c1 = bit.band(bit.rshift(val, 24), 0xFF)
     local c2 = bit.band(bit.rshift(val, 16), 0xFF)
@@ -83,7 +168,23 @@ local function decode_symbol(val)
         end
     end
     
-    return to_char(c1) .. to_char(c2) .. to_char(c3) .. to_char(c4)
+    local wire_symbol = to_char(c1) .. to_char(c2) .. to_char(c3) .. to_char(c4)
+    -- Remove trailing nulls and spaces for cleaner display
+    wire_symbol = wire_symbol:gsub("%z+$", ""):gsub(" +$", "")
+    
+    return wire_symbol
+end
+
+-- Expand symbol to human-friendly name
+local function expand_symbol(wire_symbol)
+    local full_name = SYMBOL_MAP[wire_symbol]
+    if full_name then
+        -- Show: "ACTN (AC@)" - full name with wire format hint
+        return full_name .. " [" .. wire_symbol .. "]"
+    else
+        -- Unknown symbol, just show wire format
+        return wire_symbol
+    end
 end
 
 -- Extract map key components
@@ -94,288 +195,300 @@ local function extract_key_parts(key)
     return symbol, typecode, offset
 end
 
--- Extract array index components  
+-- Extract array index components
 local function extract_array_index(index)
     local typecode = bit.band(bit.rshift(index, 9), 0x0f)
     local offset = bit.lshift(bit.band(index, 0x1ff), 2)
     return typecode, offset
 end
 
--- Get message length
-local function get_message_length(buffer, offset)
-    if buffer:len() < offset + 4 then
+-- Get message length from buffer
+local function get_message_length(tvb, offset)
+    if tvb:len() < offset + 2 then
         return 0
     end
     
-    -- Check for extended header
-    local header_id = buffer(offset, 2):uint()
+    -- Check for extended format
+    local header_id = tvb(offset, 2):uint()
     if header_id == EXT_HEADER_BLOCK_ID then
-        if buffer:len() < offset + 8 then
+        if tvb:len() < offset + 4 then
             return 0
         end
-        local ctrl_len = buffer(offset + 2, 1):uint()
-        local header_adj = bit.band(ctrl_len, 0x7F) - 1
-        if buffer:len() < offset + 4 + header_adj + 4 then
+        local ctrl_len = tvb(offset + 2, 1):uint()
+        local header_offset = bit.band(ctrl_len, 0x7F) - 1
+        local ext_offset = offset + 4 + header_offset
+        
+        if tvb:len() < ext_offset + 4 then
             return 0
         end
-        return buffer(offset + 4 + header_adj, 4):uint()
+        
+        return tvb(ext_offset, 4):uint()
     else
-        return buffer(offset, 2):uint()
+        return tvb(offset, 2):uint()
     end
 end
 
--- ================= VALUE PROCESSING =================
+-- ================= DISSECTION FUNCTIONS =================
 
-local function process_value(buffer, offset, tree, typecode, label, name_prefix)
-    local bytes_consumed = 0
-    local value_str = ""
+local function dissect_int(tvb, tree, offset)
+    tree:add_le(f_int, tvb(offset, 4))
+    return 4
+end
+
+local function dissect_date(tvb, tree, offset)
+    local timestamp = tvb(offset, 4):uint()
+    tree:add(f_date, tvb(offset, 4), timestamp)
+    return 4
+end
+
+local function dissect_symbol(tvb, tree, offset)
+    local symbol_val = tvb(offset, 4):uint()
+    local wire_symbol = decode_symbol(symbol_val)
+    local display_symbol = expand_symbol(wire_symbol)
+    
+    tree:add(f_symbol, tvb(offset, 4), display_symbol)
+    return 4
+end
+
+local function dissect_float(tvb, tree, offset)
+    tree:add_le(f_float, tvb(offset, 8))
+    return 8
+end
+
+local function dissect_string(tvb, tree, offset)
+    if offset >= tvb:len() then
+        return 0
+    end
+    
+    local strlen = tvb(offset, 1):uint()
+    local str_offset = 1
+    
+    if bit.band(strlen, 0x80) ~= 0 then
+        if offset + 2 > tvb:len() then
+            return 0
+        end
+        strlen = bit.band(tvb(offset, 2):uint(), 0x7FFF)
+        str_offset = 2
+    end
+    
+    local total_len = str_offset + strlen
+    local aligned_len = align(total_len)
+    
+    if offset + total_len > tvb:len() then
+        return 0
+    end
+    
+    local str_val = tvb(offset + str_offset, strlen):string()
+    tree:add(f_string, tvb(offset, aligned_len), str_val)
+    
+    return aligned_len
+end
+
+local function dissect_raw(tvb, tree, offset)
+    if offset + 4 > tvb:len() then
+        return 0
+    end
+    
+    local raw_len = tvb(offset, 4):uint()
+    local total_len = 4 + raw_len
+    local aligned_len = align(total_len)
+    
+    if offset + total_len > tvb:len() then
+        return 0
+    end
+    
+    tree:add(f_raw, tvb(offset + 4, raw_len))
+    
+    return aligned_len
+end
+
+local function dissect_value(tvb, tree, typecode, offset, depth, name)
+    if offset >= tvb:len() then
+        return 0
+    end
+    
+    local subtree = tree
+    if name then
+        local wire_name = name:gsub("%z+$", ""):gsub(" +$", "")
+        local display_name = expand_symbol(wire_name)
+        subtree = tree:add(escher_proto, tvb(offset, 0), display_name)
+    end
+    
+    subtree:add(f_typecode, typecode)
     
     if typecode == NULL_TYPE then
-        value_str = "NULL"
-        if tree then
-            tree:add(buffer(offset, 0), string.format("%s: NULL", label))
-        end
-        bytes_consumed = 0
-        
+        subtree:append_text(": null")
+        return 0
     elseif typecode == INT_TYPE then
-        if offset + 4 > buffer:len() then return 0, "" end
-        local value = buffer(offset, 4):int()
-        value_str = tostring(value)
-        if tree then
-            tree:add(f_int, buffer(offset, 4), value):set_text(string.format("%s: %d", label, value))
-        end
-        bytes_consumed = 4
-        
-    elseif typecode == FLOAT_TYPE then
-        if offset + 8 > buffer:len() then return 0, "" end
-        local value = buffer(offset, 8):le_float64()
-        value_str = string.format("%.6f", value)
-        if tree then
-            tree:add(f_float, buffer(offset, 8), value):set_text(string.format("%s: %s", label, value_str))
-        end
-        bytes_consumed = 8
-        
-    elseif typecode == STRING_TYPE then
-        if offset + 1 > buffer:len() then return 0, "" end
-        local strlen = buffer(offset, 1):uint()
-        local str_offset = 1
-        
-        -- Handle long strings (>= 128 bytes)
-        if bit.band(strlen, 0x80) ~= 0 then
-            if offset + 2 > buffer:len() then return 0, "" end
-            strlen = bit.band(buffer(offset, 2):uint(), 0x7fff)
-            str_offset = 2
-        end
-        
-        if strlen > 0 and (offset + str_offset + strlen) <= buffer:len() then
-            value_str = buffer(offset + str_offset, strlen):string()
-            if tree then
-                tree:add(f_string, buffer(offset + str_offset, strlen), value_str):set_text(string.format("%s: \"%s\"", label, value_str))
-            end
-        end
-        
-        bytes_consumed = align(str_offset + strlen)
-        
+        return dissect_int(tvb, subtree, offset)
     elseif typecode == DATE_TYPE then
-        if offset + 4 > buffer:len() then return 0, "" end
-        local timestamp = buffer(offset, 4):uint()
-        value_str = os.date("%Y-%m-%d %H:%M:%S", timestamp)
-        if tree then
-            tree:add(f_date, buffer(offset, 4), timestamp):set_text(string.format("%s: %s", label, value_str))
-        end
-        bytes_consumed = 4
-        
+        return dissect_date(tvb, subtree, offset)
     elseif typecode == SYMBOL_TYPE then
-        if offset + 4 > buffer:len() then return 0, "" end
-        local symbol_val = buffer(offset, 4):uint()
-        value_str = decode_symbol(symbol_val)
-        if tree then
-            tree:add(f_symbol, buffer(offset, 4), value_str):set_text(string.format("%s: %s", label, value_str))
-        end
-        bytes_consumed = 4
-        
-    elseif typecode == RAW_TYPE then
-        if offset + 4 > buffer:len() then return 0, "" end
-        local raw_len = buffer(offset, 4):uint()
-        value_str = string.format("[Raw %d bytes]", raw_len)
-        if tree and raw_len > 0 and (offset + 4 + raw_len) <= buffer:len() then
-            tree:add(f_raw, buffer(offset + 4, raw_len)):set_text(string.format("%s: [Raw %d bytes]", label, raw_len))
-        end
-        bytes_consumed = align(4 + raw_len)
-        
+        return dissect_symbol(tvb, subtree, offset)
+    elseif typecode == FLOAT_TYPE then
+        return dissect_float(tvb, subtree, offset)
+    elseif typecode == STRING_TYPE then
+        return dissect_string(tvb, subtree, offset)
     elseif typecode == ARRAY_TYPE then
-        local array_bytes, array_str = dissect_array(buffer, offset, tree, label, name_prefix)
-        bytes_consumed = array_bytes
-        value_str = array_str
-        
+        return dissect_array(tvb, subtree, offset, depth + 1)
     elseif typecode == MAP_TYPE then
-        local map_bytes, map_str = dissect_map(buffer, offset, tree, label, name_prefix)
-        bytes_consumed = map_bytes
-        value_str = map_str
+        return dissect_map(tvb, subtree, offset, depth + 1)
+    elseif typecode == RAW_TYPE then
+        return dissect_raw(tvb, subtree, offset)
+    else
+        subtree:append_text(": Unknown type")
+        return 0
     end
-    
-    return bytes_consumed, value_str
 end
 
--- ================= ARRAY DISSECTION =================
-
-function dissect_array(buffer, offset, tree, label, name_prefix)
-    if offset + 4 > buffer:len() then return 0, "[]" end
-    
-    local start_offset = offset
-    local array_tree = tree
-    if tree then
-        array_tree = tree:add(buffer(offset), string.format("%s: Array", label))
+function dissect_array(tvb, tree, offset, depth)
+    if depth > 32 then
+        tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Array nesting too deep")
+        return 0
     end
     
-    -- Check for extended header
+    local start_offset = offset
     local is_extended = false
     local header_offset = 0
     
-    if offset + 2 <= buffer:len() then
-        local header_id = buffer(offset, 2):uint()
+    -- Check for extended header
+    if offset + 2 <= tvb:len() then
+        local header_id = tvb(offset, 2):uint()
         if header_id == EXT_HEADER_BLOCK_ID then
             is_extended = true
-            if array_tree then
-                array_tree:add(f_extended, buffer(offset, 2), true)
-            end
-            if offset + 3 <= buffer:len() then
-                header_offset = buffer(offset + 2, 1):uint() - 1
+            tree:add(f_extended, true)
+            
+            if offset + 3 <= tvb:len() then
+                local ctrl_len = tvb(offset + 2, 1):uint()
+                header_offset = bit.band(ctrl_len, 0x7F) - 1
             end
             offset = offset + 4 + header_offset
         end
     end
     
-    if offset + 4 > buffer:len() then return 4, "[]" end
+    if offset + 4 > tvb:len() then
+        return 0
+    end
     
-    local num_items, byte_length
+    local byte_length, num_items
     
-    if is_extended and offset + 12 <= buffer:len() then
-        byte_length = buffer(offset, 4):uint()
-        num_items = buffer(offset + 8, 4):uint()
-        if array_tree then
-            array_tree:add(f_ext_length, buffer(offset, 4), byte_length)
-            array_tree:add(f_ext_items, buffer(offset + 8, 4), num_items)
+    if is_extended then
+        if offset + 12 > tvb:len() then
+            return 0
         end
+        byte_length = tvb(offset, 4):uint()
+        num_items = tvb(offset + 8, 4):uint()
+        tree:add(f_ext_length, tvb(offset, 4))
+        tree:add(f_ext_items, tvb(offset + 8, 4))
         offset = offset + 12
-    elseif offset + 4 <= buffer:len() then
-        local ptr_val = buffer(offset, 4):uint()
+    else
+        local ptr_val = tvb(offset, 4):uint()
         
         if is_dirty(ptr_val) then
-            if array_tree then
-                array_tree:add(f_dirty, buffer(offset, 4), true)
-            end
-            return 4, "[Dirty]"
+            tree:add(f_dirty, true)
+            tree:append_text(": <Dirty>")
+            return 4
         end
         
-        byte_length = buffer(offset, 2):uint()
-        num_items = buffer(offset + 2, 2):uint()
-        if array_tree then
-            array_tree:add(f_length, buffer(offset, 2), byte_length)
-            array_tree:add(f_num_items, buffer(offset + 2, 2), num_items)
-        end
+        byte_length = tvb(offset, 2):uint()
+        num_items = tvb(offset + 2, 2):uint()
+        tree:add(f_length, tvb(offset, 2))
+        tree:add(f_num_items, tvb(offset + 2, 2))
         offset = offset + 4
-    else
-        return 4, "[]"
     end
     
     local items_start = offset
+    tree:append_text(string.format(": Array[%d]", num_items))
     
-    -- Process array elements
+    -- Read array indices
     for i = 0, num_items - 1 do
-        if offset + 2 > buffer:len() then break end
+        if offset + 2 > tvb:len() then
+            break
+        end
         
-        local index_val = buffer(offset, 2):uint()
+        local index_val = tvb(offset, 2):uint()
         local typecode, item_offset = extract_array_index(index_val)
         
         offset = offset + 2
         
         if item_offset > 0 then
             local value_offset = items_start + item_offset
-            if value_offset < buffer:len() then
-                local element_label = string.format("[%d]", i)
-                local new_prefix = name_prefix .. ".array"
-                process_value(buffer, value_offset, array_tree, typecode, element_label, new_prefix)
+            if value_offset < tvb:len() then
+                local item_tree = tree:add(escher_proto, tvb(value_offset, 0), string.format("[%d]", i))
+                dissect_value(tvb, item_tree, typecode, value_offset, depth, nil)
             end
         end
     end
     
-    return byte_length, string.format("[%d items]", num_items)
+    return offset - start_offset + (byte_length - (offset - items_start))
 end
 
--- ================= MAP DISSECTION =================
-
-function dissect_map(buffer, offset, tree, label, name_prefix)
-    if offset + 4 > buffer:len() then return 0, "{}" end
-    
-    local start_offset = offset
-    local map_tree = tree
-    if tree then
-        if label and label ~= "" then
-            map_tree = tree:add(buffer(offset), string.format("%s: Map", label))
-        else
-            map_tree = tree:add(buffer(offset), "Map")
-        end
+function dissect_map(tvb, tree, offset, depth)
+    if depth > 32 then
+        tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Map nesting too deep")
+        return 0
     end
     
-    -- Check for extended header
+    local start_offset = offset
     local is_extended = false
     local header_offset = 0
     
-    if offset + 2 <= buffer:len() then
-        local header_id = buffer(offset, 2):uint()
+    -- Check for extended header
+    if offset + 2 <= tvb:len() then
+        local header_id = tvb(offset, 2):uint()
         if header_id == EXT_HEADER_BLOCK_ID then
             is_extended = true
-            if map_tree then
-                map_tree:add(f_extended, buffer(offset, 2), true)
-            end
-            if offset + 3 <= buffer:len() then
-                header_offset = buffer(offset + 2, 1):uint() - 1
+            tree:add(f_extended, true)
+            
+            if offset + 3 <= tvb:len() then
+                local ctrl_len = tvb(offset + 2, 1):uint()
+                header_offset = bit.band(ctrl_len, 0x7F) - 1
             end
             offset = offset + 4 + header_offset
         end
     end
     
-    if offset + 4 > buffer:len() then return 4, "{}" end
+    if offset + 4 > tvb:len() then
+        return 0
+    end
     
-    local num_items, byte_length
+    local byte_length, num_items
     
-    if is_extended and offset + 12 <= buffer:len() then
-        byte_length = buffer(offset, 4):uint()
-        num_items = buffer(offset + 8, 4):uint()
-        if map_tree then
-            map_tree:add(f_ext_length, buffer(offset, 4), byte_length)
-            map_tree:add(f_ext_items, buffer(offset + 8, 4), num_items)
+    if is_extended then
+        if offset + 12 > tvb:len() then
+            return 0
         end
+        byte_length = tvb(offset, 4):uint()
+        num_items = tvb(offset + 8, 4):uint()
+        tree:add(f_ext_length, tvb(offset, 4))
+        tree:add(f_ext_items, tvb(offset + 8, 4))
         offset = offset + 12
-    elseif offset + 4 <= buffer:len() then
-        local ptr_val = buffer(offset, 4):uint()
+    else
+        local ptr_val = tvb(offset, 4):uint()
         
         if is_dirty(ptr_val) then
-            if map_tree then
-                map_tree:add(f_dirty, buffer(offset, 4), true)
-            end
-            return 4, "{Dirty}"
+            tree:add(f_dirty, true)
+            tree:append_text(": <Dirty>")
+            return 4
         end
         
-        byte_length = buffer(offset, 2):uint()
-        num_items = buffer(offset + 2, 2):uint()
-        if map_tree then
-            map_tree:add(f_length, buffer(offset, 2), byte_length)
-            map_tree:add(f_num_items, buffer(offset + 2, 2), num_items)
-        end
+        byte_length = tvb(offset, 2):uint()
+        num_items = tvb(offset + 2, 2):uint()
+        tree:add(f_length, tvb(offset, 2))
+        tree:add(f_num_items, tvb(offset + 2, 2))
         offset = offset + 4
-    else
-        return 4, "{}"
     end
     
     local items_start = offset
+    tree:append_text(string.format(": Map{%d}", num_items))
     
-    -- Process map entries
+    -- Read map keys
     for i = 0, num_items - 1 do
-        if offset + 4 > buffer:len() then break end
+        if offset + 4 > tvb:len() then
+            break
+        end
         
-        local key_val = buffer(offset, 4):uint()
+        local key_val = tvb(offset, 4):uint()
         local symbol, typecode, item_offset = extract_key_parts(key_val)
         local symbol_str = decode_symbol(symbol)
         
@@ -383,79 +496,47 @@ function dissect_map(buffer, offset, tree, label, name_prefix)
         
         if item_offset > 0 then
             local value_offset = items_start + item_offset
-            if value_offset < buffer:len() then
-                -- Create hierarchical name (mimics C++ namePrefix)
-                local new_prefix = name_prefix
-                if new_prefix ~= "" then
-                    new_prefix = new_prefix .. "." .. symbol_str:lower()
-                else
-                    new_prefix = "escher." .. symbol_str:lower()
-                end
-                
-                process_value(buffer, value_offset, map_tree, typecode, symbol_str, new_prefix)
+            if value_offset < tvb:len() then
+                dissect_value(tvb, tree, typecode, value_offset, depth, symbol_str)
             end
         end
     end
     
-    return byte_length, string.format("{%d items}", num_items)
+    return offset - start_offset + (byte_length - (offset - items_start))
+end
+
+-- ================= TCP REASSEMBLY =================
+
+function get_escher_pdu_len(tvb, pinfo, offset)
+    if tvb:len() < offset + 8 then
+        return -(offset + 8 - tvb:len())
+    end
+    
+    local msg_len = get_message_length(tvb, offset)
+    if msg_len == 0 then
+        return -(offset + 8 - tvb:len())
+    end
+    
+    return msg_len
 end
 
 -- ================= MAIN DISSECTOR =================
 
-function escher_proto.dissector(buffer, pinfo, tree)
-    local length = buffer:len()
-    if length == 0 then return end
-    
+function escher_proto.dissector(tvb, pinfo, tree)
     pinfo.cols.protocol = "ESCHER"
     
-    -- Get message length
-    local msg_len = get_message_length(buffer, 0)
-    if msg_len == 0 or msg_len > length then
-        return 0
-    end
+    local subtree = tree:add(escher_proto, tvb(), "ESCHER Protocol")
     
-    local subtree = tree:add(escher_proto, buffer(), "ESCHER Protocol")
+    local offset = 0
+    dissect_map(tvb, subtree, offset, 0)
     
-    -- Decode the message as a Map (top level is always a Map)
-    local bytes_read, msg_desc = dissect_map(buffer, 0, subtree, "", "")
-    
-    -- Set info column with message description
-    pinfo.cols.info = string.format("ESCHER Message (%d bytes)", msg_len)
-    
-    return bytes_read
-end
-
--- ================= PDU LENGTH FUNCTION =================
-
-local function get_escher_pdu_len(buffer, pinfo, offset)
-    local len = get_message_length(buffer, offset)
-    if len == 0 then
-        return 0  -- Need more data
-    end
-    return len
-end
-
--- ================= TCP DISSECTOR WRAPPER =================
-
-local function escher_tcp_dissector(buffer, pinfo, tree)
-    -- Use TCP PDU dissection for message reassembly
-    -- Minimum length 8 bytes (smallest valid map)
-    dissect_tcp_pdus(buffer, tree, 8, get_escher_pdu_len, escher_proto.dissector)
+    return tvb:len()
 end
 
 -- ================= REGISTRATION =================
 
 local tcp_port = DissectorTable.get("tcp.port")
-local udp_port = DissectorTable.get("udp.port")
-
--- Register on default port 1500 (DEFAULT_PORT_NUMBER = 1500)
 tcp_port:add(DEFAULT_PORT, escher_proto)
-udp_port:add(DEFAULT_PORT, escher_proto)
 
--- Also register on common test ports
-tcp_port:add(5000, escher_proto)
-tcp_port:add(5001, escher_proto)
-udp_port:add(5000, escher_proto)
-udp_port:add(5001, escher_proto)
-
-print("ESCHER Protocol Dissector Loaded (port " .. DEFAULT_PORT .. ")")
+-- Console log
+print("ESCHER Protocol Dissector Loaded (port " .. DEFAULT_PORT .. ") with symbol mapping enabled")
