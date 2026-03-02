@@ -1,15 +1,15 @@
 {
-  "GENE": "Here",
-  "YOU ": [
+  "CCDR": "Here",
+  "VER ": [
     {
-      "HEAD": "big",
-      "ARMS": [
+      "CODE": "big",
+      "HTBT": [
         "left",
         "right"
       ]
     },
     {
-      "FISH": "Nemo"
+      "WALT": "Nemo"
     }
   ],
   "PI  ": 3.1415

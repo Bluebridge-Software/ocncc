@@ -1,0 +1,14 @@
+{
+  "ACTN": "REQ ",
+  "TYPE": "IR  ",
+  "HEAD": {
+    "CMID": 12345,
+    "SVID": 1,
+    "VER ": 1
+  },
+  "BODY": {
+    "CLI ": "447700900123",
+    "AREF": "ACC001",
+    "WALT": "WALLET123"
+  }
+}

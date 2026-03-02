@@ -1,9 +1,12 @@
 -- ============================================================
--- Oracle ESCHER Protocol Dissector with Symbol Mapping
--- Converted from C++/C Wireshark plugin (decodeEscher.cc/escher.c)
+-- Oracle ESCHER Protocol Dissector
 -- 
 -- This is the GENERIC ESCHER dissector (port 1500)
--- Now includes symbol mapping for human-friendly display
+-- Separate from FOX dissector (port 1700)
+-- 
+-- Supports both SPARC (big-endian) and x86 Linux (little-endian)
+--
+-- © COPYRIGHT: Blue Bridge Software Ltd - 2026
 -- ============================================================
 
 local escher_proto = Proto("ESCHER", "ESCHER Protocol")
@@ -43,6 +46,7 @@ local SYMBOL_MAP = {
     ["SR"] = "SR  ",   -- Subsequent Reservation
     ["CR"] = "CR  ",   -- Commit Reservation
     ["RR"] = "RR  ",   -- Revoke Reservation
+    ["PI"] = "PI  ",   -- Pi (mathematical constant or other use)
     ["WG@"] = "WGR ",  -- Wallet General Recharge
     ["WI"] = "WI  ",   -- Wallet Info
     ["WU"] = "WU  ",   -- Wallet Update
@@ -160,16 +164,10 @@ local function decode_symbol(val)
     local c3 = bit.band(bit.rshift(val, 8), 0xFF)
     local c4 = bit.band(val, 0xFF)
     
-    local function to_char(b)
-        if b >= 32 and b < 127 then
-            return string.char(b)
-        else
-            return string.format("\\x%02X", b)
-        end
-    end
+    -- Build raw symbol string (needed for lookup)
+    local wire_symbol = string.char(c1, c2, c3, c4)
     
-    local wire_symbol = to_char(c1) .. to_char(c2) .. to_char(c3) .. to_char(c4)
-    -- Remove trailing nulls and spaces for cleaner display
+    -- Clean up: remove trailing nulls and spaces
     wire_symbol = wire_symbol:gsub("%z+$", ""):gsub(" +$", "")
     
     return wire_symbol
