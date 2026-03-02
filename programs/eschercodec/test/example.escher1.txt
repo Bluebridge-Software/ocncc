@@ -1,0 +1,10 @@
+   [GENE] = "Here"
+   [YOU ] = Array:
+       Map:
+            [HEAD] = "big"
+            [ARMS] = Array:
+                 [0] = "left"
+                 [1] = "right"
+       Map:
+            [FISH] = "Nemo"
+   [PI  ] = 3.1415
