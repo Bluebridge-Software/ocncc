@@ -9,6 +9,8 @@
   "BODY": {
     "CLI ": "447700900123",
     "AREF": "ACC001",
-    "WALT": "WALLET123"
+    "WALT": "WALLET123",
+    "BTYP": 123,
+    "PI  ": 3.142
   }
 }
