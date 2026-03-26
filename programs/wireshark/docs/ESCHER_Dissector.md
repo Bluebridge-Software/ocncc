@@ -468,3 +468,68 @@ if val < 0 then val = val + 4294967296 end
 ```
 
 This works correctly because Lua 5.1 numbers are IEEE-754 doubles with a 53-bit mantissa, which is sufficient to represent all unsigned 32-bit values without loss of precision. The same issue does not affect typecode or offset extraction because `bit.rshift()` treats its input as unsigned before shifting.
+
+# ESCHER Protocol Dissector for Wireshark
+
+This Lua dissector provides deep packet inspection for the **ESCHER** protocol, a key-value map-based protocol used for network communication.
+
+## 🚀 Installation
+
+1. Open Wireshark and go to **About Wireshark** -> **Folders**.
+2. Locate the **Personal Lua Plugins** folder.
+3. Copy [escher_dissector.lua] into that folder.
+4. Restart Wireshark or press **Ctrl+Shift+L** to reload plugins.
+
+---
+
+## 🔍 Filtering Guide
+
+### 1. General Filters
+These filters work on the protocol structure itself:
+
+| Filter | Description |
+| :--- | :--- |
+| `escher` | Show all ESCHER protocol packets. |
+| `escher.map.items > 5` | Find maps with more than 5 items. |
+| `escher.sym == "ACTN"` | Find any packet containing an `ACTN` key. |
+| `escher.field_label == "FOX Action"` | Find any packet containing a "FOX Action" key. |
+
+### 2. Specific Field Filters (Symbol-Based)
+Every known symbol from the `FIELD_LABELS` table is registered as a specific filter. Spaces are replaced by underscores, and names are lowercase.
+
+Examples:
+- **`escher.actn == "REQ "`**
+- **`escher.type == "WI  "`**
+- **`escher.cli == "447700900123"`**
+- **`escher.cmid == "1234"`**
+
+### 3. Advanced Filtering Techniques
+
+#### Whitespace Stripping (Automatic)
+The dissector automatically stripped trailing whitespace for symbols and strings to make filtering easier. You can use either the full padded value or the clean value:
+- `escher.type == "WI  "` (Matches exact)
+- `escher.type == "WI"` (Matches stripped)
+
+#### Wildcards & Regex
+Wireshark's standard filter engine supports regular expressions via the `matches` (or `~`) operator:
+- **Prefix match**: `escher.cli matches "^447"*`
+- **Suffix match**: `escher.cli matches "000$"`
+- **Pattern match**: `escher.cli matches "44790.*000"`
+- **Case-insensitive**: `escher.type matches "(?i)wi"`
+
+1. Using matches (Regex support)
+This is the most powerful way. Use .* as the wildcard: escher.cli matches "^44790.*000$" (This matches any CLI starting with 44790 and ending with 000)
+
+2. Using contains (Substring match)
+To find any CLI that contains "44790": escher.cli contains "44790"
+
+3. Case-Insensitive Matching
+If you want to match symbols or strings regardless of case: escher.type matches "(?i)wi"
+
+Summary Table for Filter Field
+| Operator  | Example                          | Description                              |
+|----------|----------------------------------|------------------------------------------|
+| `==`     | `escher.cli == "447700900123"`   | Exact match.                             |
+| `contains` | `escher.cli contains "900"`    | Match if value contains "900".           |
+| `matches` | `escher.cli matches "44790.*000"` | Match using a regular expression.        |
+| `~`      | `escher.cli ~ "44790.*000"`      | Shorthand for matches.                   |

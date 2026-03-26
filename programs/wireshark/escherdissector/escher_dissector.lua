@@ -85,13 +85,19 @@ local f_val_symbol    = ProtoField.string("escher.val.symbol",      "Symbol")
 local f_val_date      = ProtoField.string("escher.val.date",         "Date")
 local f_val_raw       = ProtoField.bytes ("escher.val.raw",         "Raw Data")
 local f_val_null      = ProtoField.string("escher.val.null",        "Null")
+local f_sym           = ProtoField.string("escher.sym",             "Symbol")
+local f_field_label   = ProtoField.string("escher.field_label",     "Field Label")
 
-escher_proto.fields = {
+local fields = {
     f_map_total, f_map_ext_len, f_map_items, f_map_ext_items, f_map_ptr,
     f_ext_magic, f_ext_ctrl, f_entry_raw,
     f_val_int32, f_val_int64, f_val_float, f_val_string, f_val_symbol,
     f_val_date, f_val_raw, f_val_null,
+    f_sym, f_field_label,
 }
+-- SYMBOL_PROTO_FIELDS is defined later but we will populate this table before the dissector runs.
+-- However, since Lua script is executed top-to-bottom, we need to ensure the order is right.
+-- I will move the fields registration AFTER the SYMBOL_PROTO_FIELDS definition.
 
 -- ============================================================
 -- Symbol decoder  (matches Symbol::toString in the C++ source)
@@ -667,6 +673,31 @@ local FIELD_LABELS = {
     ["TRYA"] = "Try Again In",
 }
 
+-- ============================================================
+-- Register a ProtoField for every known symbol to allow specific filtering.
+-- Filter names are "escher.<SYMBOL>" (lowercase, spaces to underscores).
+-- ============================================================
+local SYMBOL_PROTO_FIELDS = {}
+local registered_names = {}
+for sym, label in pairs(FIELD_LABELS) do
+    -- Strip trailing spaces and convert to lowercase for intuitive filtering (e.g., "CLI " -> escher.cli)
+    local filter_name = sym:gsub("%s+$", ""):lower():gsub(" ", "_")
+    if registered_names[filter_name] then
+        -- In case of collision (unlikely), fall back to exact underscores
+        filter_name = sym:lower():gsub(" ", "_")
+    end
+    registered_names[filter_name] = true
+    SYMBOL_PROTO_FIELDS[sym] = ProtoField.string("escher." .. filter_name, label)
+end
+
+-- Now finalize the fields registration
+do
+    for _, f in pairs(SYMBOL_PROTO_FIELDS) do
+        table.insert(fields, f)
+    end
+    escher_proto.fields = fields
+end
+
 -- Return a display label for a symbol, including the raw symbol in parentheses.
 local function field_label(sym_name)
     local friendly = FIELD_LABELS[sym_name]
@@ -688,11 +719,13 @@ local dissect_map, dissect_array
 --   abs_offset   : absolute byte position in tvb where data starts
 --   label        : display label (e.g. "[ACTN]")
 --   depth        : recursion depth guard
+--   sym_name     : raw 4-char symbol name (from map index)
 -- Returns bytes consumed (informational; 0 for NULL).
 -- ============================================================
-local function dissect_value(tvb, parent_tree, typecode, abs_offset, label, depth)
+local function dissect_value(tvb, parent_tree, typecode, abs_offset, label, depth, sym_name)
     if depth > 20 then return 0 end
     local tlen = tvb:len()
+    local spec_field = sym_name and SYMBOL_PROTO_FIELDS[sym_name]
 
     if typecode == 0 then   -- NULL
         local item = parent_tree:add(f_val_null, tvb(abs_offset, 0), "(null)")
@@ -701,17 +734,23 @@ local function dissect_value(tvb, parent_tree, typecode, abs_offset, label, dept
 
     elseif typecode == 1 then   -- INT32
         if abs_offset + 4 > tlen then return 0 end
+        local val  = tvb(abs_offset, 4):int()
         local item = parent_tree:add(f_val_int32, tvb(abs_offset, 4))
-        item:set_text(string.format("%s = %d", label, tvb(abs_offset, 4):int()))
+        item:set_text(string.format("%s = %d", label, val))
+        if spec_field then
+            parent_tree:add(spec_field, tvb(abs_offset, 4), tostring(val)):set_hidden()
+        end
         return 4
 
     elseif typecode == 2 then   -- DATE (u32 unix timestamp)
         if abs_offset + 4 > tlen then return 0 end
         local ts   = tvb(abs_offset, 4):uint()
-        -- Show: label = YYYYMMDDHHMMSS (raw_value)
-        local item = parent_tree:add(f_val_date, tvb(abs_offset, 4),
-                                     format_timestamp(ts))
-        item:set_text(string.format("%s = %s", label, format_timestamp(ts)))
+        local fts  = format_timestamp(ts)
+        local item = parent_tree:add(f_val_date, tvb(abs_offset, 4), fts)
+        item:set_text(string.format("%s = %s", label, fts))
+        if spec_field then
+            parent_tree:add(spec_field, tvb(abs_offset, 4), fts):set_hidden()
+        end
         return 4
 
     elseif typecode == 3 then   -- SYMBOL
@@ -720,6 +759,18 @@ local function dissect_value(tvb, parent_tree, typecode, abs_offset, label, dept
         local sym  = decode_symbol(sv)
         local item = parent_tree:add(f_val_symbol, tvb(abs_offset, 4), sym)
         item:set_text(string.format("%s = '%s'", label, sym))
+        
+        local sym_stripped = sym:match("^%s*(.-)%s*$")
+        if sym_stripped ~= sym then
+            parent_tree:add(f_val_symbol, tvb(abs_offset, 4), sym_stripped):set_hidden()
+        end
+
+        if spec_field then
+            parent_tree:add(spec_field, tvb(abs_offset, 4), sym):set_hidden()
+            if sym_stripped ~= sym then
+                parent_tree:add(spec_field, tvb(abs_offset, 4), sym_stripped):set_hidden()
+            end
+        end
         return 4
 
     elseif typecode == 4 then   -- FLOAT64 (byte-reversed on Linux)
@@ -747,8 +798,20 @@ local function dissect_value(tvb, parent_tree, typecode, abs_offset, label, dept
         end
         if abs_offset + hdr_sz + str_len > tlen then return 0 end
         local item = parent_tree:add(f_val_string, tvb(abs_offset + hdr_sz, str_len))
-        item:set_text(string.format("%s = '%s'", label,
-                      tvb(abs_offset + hdr_sz, str_len):string()))
+        local sval = tvb(abs_offset + hdr_sz, str_len):string()
+        item:set_text(string.format("%s = '%s'", label, sval))
+        
+        local sval_stripped = sval:match("^%s*(.-)%s*$")
+        if sval_stripped ~= sval then
+            parent_tree:add(f_val_string, tvb(abs_offset + hdr_sz, str_len), sval_stripped):set_hidden()
+        end
+
+        if spec_field then
+            parent_tree:add(spec_field, tvb(abs_offset + hdr_sz, str_len), sval):set_hidden()
+            if sval_stripped ~= sval then
+                parent_tree:add(spec_field, tvb(abs_offset + hdr_sz, str_len), sval_stripped):set_hidden()
+            end
+        end
         -- Padded to 4-byte boundary
         return math.floor((hdr_sz + str_len + 3) / 4) * 4
 
@@ -768,8 +831,11 @@ local function dissect_value(tvb, parent_tree, typecode, abs_offset, label, dept
     elseif typecode == 9 then   -- INT64
         if abs_offset + 8 > tlen then return 0 end
         local item = parent_tree:add(f_val_int64, tvb(abs_offset, 8))
-        item:set_text(string.format("%s = %s", label,
-                      tostring(tvb(abs_offset, 8):int64())))
+        local v64  = tostring(tvb(abs_offset, 8):int64())
+        item:set_text(string.format("%s = %s", label, v64))
+        if spec_field then
+            parent_tree:add(spec_field, tvb(abs_offset, 8), v64):set_hidden()
+        end
         return 8
 
     elseif typecode == 12 then  -- MAP  (ESCHER_MAP_TYPE = 12)
@@ -864,6 +930,12 @@ dissect_map = function(tvb, tree, offset, depth)
         local friendly    = field_label(sym_name)
         local node_label  = string.format("%s [%s]", friendly, tname)
         local entry_node  = tree:add(escher_proto, tvb(idx_off, item_stride), node_label)
+        entry_node:add(f_sym, tvb(idx_off, 4), sym_name):set_hidden()
+        local friendly_base = FIELD_LABELS[sym_name]
+        if friendly_base then
+            entry_node:add(f_field_label, tvb(idx_off, 4), friendly_base):set_hidden()
+        end
+
         entry_node:add(f_entry_raw, tvb(idx_off, 4)):set_text(
             string.format("Index: sym='%s' type=%s offset_words=%d (byte +%d)",
                           sym_name, tname, data_off_words, data_off_words * 4))
@@ -879,7 +951,7 @@ dissect_map = function(tvb, tree, offset, depth)
                               data_abs_off, tlen))
         else
             dissect_value(tvb, entry_node, typecode, data_abs_off,
-                          friendly, depth)
+                          friendly, depth, sym_name)
         end
     end
 
@@ -949,7 +1021,7 @@ dissect_array = function(tvb, tree, offset, depth)
                            string.format("%s [%s]", label, tname))
 
         if typecode ~= 0 and data_abs_off < tlen then
-            dissect_value(tvb, entry_node, typecode, data_abs_off, label, depth)
+            dissect_value(tvb, entry_node, typecode, data_abs_off, label, depth, nil)
         end
     end
 
