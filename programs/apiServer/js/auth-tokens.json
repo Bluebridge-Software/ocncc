@@ -1,0 +1,12 @@
+{
+  "TestClientA": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbGllbnRJZCI6IlRlc3RDbGllbnRBIiwiYWxsb3dlZEVuZHBvaW50cyI6WyIvd2FsbGV0LWluZm8iLCIvaW5pdGlhbC1yZXNlcnZhdGlvbiIsIi9zdGF0cyJdLCJpYXQiOjE3NzQ1NDE5NjgsImV4cCI6MTc3NTE0Njc2OH0.ZCn3S7fRiV6BRatlD7b8bVfUV3GM984Q_5FZCsDTLYw",
+    "allowedEndpoints": [
+      "/wallet-info",
+      "/initial-reservation",
+      "/stats"
+    ],
+    "expiresIn": "7d",
+    "generatedAt": "2026-03-26T16:19:28.278Z"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "clientId": "TestClientA",
+  "allowedEndpoints": [
+    "/wallet-info",
+    "/initial-reservation",
+    "/stats"
+  ],
+  "expiresIn": "7d"
+}

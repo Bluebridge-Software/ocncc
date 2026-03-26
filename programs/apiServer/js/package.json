@@ -1,0 +1,22 @@
+{
+  "name": "bbs-ocncc-be-client",
+  "version": "1.0.0",
+  "description": "JavaScript client for Oracle OCNCC Billing Engine (Escher protocol)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.3.1",
+    "ioredis": "^5.10.1",
+    "jsonwebtoken": "^9.0.3",
+    "net-snmp": "^3.26.1",
+    "swagger-ui-express": "^5.0.0",
+    "syslog-client": "^1.1.1",
+    "uuid": "^9.0.0"
+  }
+}
