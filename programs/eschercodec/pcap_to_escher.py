@@ -63,6 +63,16 @@ def decode_symbol(val):
     return ALPHABET[r1] + ALPHABET[r2] + ALPHABET[r3] + ALPHABET[r4]
 
 # ---------------------------------------------------------------------------
+# Load shared symbol -> label mapping
+# ---------------------------------------------------------------------------
+SYMBOL_TO_LABEL = {}
+try:
+    with open(Path(__file__).parent / "escher_fields.json", "r") as f:
+        SYMBOL_TO_LABEL = json.load(f)
+except Exception:
+    pass # Fall back to raw symbols if mapping is missing
+
+# ---------------------------------------------------------------------------
 # Timestamp formatter
 # ---------------------------------------------------------------------------
 def format_timestamp(ts_sec, ts_usec=0):
@@ -122,7 +132,7 @@ def align4(n):
 # ---------------------------------------------------------------------------
 # ESCHER decoder
 # ---------------------------------------------------------------------------
-def decode_map(data):
+def decode_map(data, use_labels=True):
     """
     Decode an ESCHER MAP from bytes.
     Returns an OrderedDict-style dict preserving key order.
@@ -168,16 +178,19 @@ def decode_map(data):
             data_off_words = entry_raw & 0x1FF
 
         data_abs_off = data_off_words * 4   # offset from MAP START (byte 0 of data)
+        value        = decode_value(data, typecode, data_abs_off, use_labels)
 
-        key = sym_name  # keep all 4 chars including trailing spaces
+        if use_labels:
+            key = SYMBOL_TO_LABEL.get(sym_name, sym_name)
+        else:
+            key = sym_name
 
-        value = decode_value(data, typecode, data_abs_off)
         result[key] = value
 
     return result
 
 
-def decode_array(data):
+def decode_array(data, use_labels=True):
     """Decode an ESCHER ARRAY from bytes. Returns a list."""
     if len(data) < 8:
         return []
@@ -214,13 +227,12 @@ def decode_array(data):
             data_off_words = entry_raw & 0x1FF
 
         data_abs_off = data_off_words * 4
-
-        result.append(decode_value(data, typecode, data_abs_off))
+        result.append(decode_value(data, typecode, data_abs_off, use_labels))
 
     return result
 
 
-def decode_value(data, typecode, abs_off):
+def decode_value(data, typecode, abs_off, use_labels=True):
     """Decode a single typed value from data[abs_off:]."""
     vd = data[abs_off:] if abs_off < len(data) else b''
 
@@ -274,7 +286,7 @@ def decode_value(data, typecode, abs_off):
             return {"_type": "bytes", "hex": s_data.hex()}
 
     elif typecode == TC_ARRAY:
-        return decode_array(vd)
+        return decode_array(vd, use_labels)
 
     elif typecode == TC_RAW:
         if len(vd) < 4:
@@ -289,7 +301,7 @@ def decode_value(data, typecode, abs_off):
         return struct.unpack('>q', vd[:8])[0]
 
     elif typecode == TC_MAP:
-        return decode_map(vd)
+        return decode_map(vd, use_labels)
 
     else:
         # Unknown typecode — return raw bytes so nothing is silently lost
@@ -350,7 +362,7 @@ def read_pcap(path):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def decode_pcap(pcap_path, escher_port=1500):
+def decode_pcap(pcap_path, escher_port=1500, use_labels=True):
     messages = []
 
     for pkt_num, ts_sec, ts_usec, src_ip, src_port, dst_ip, dst_port, payload in read_pcap(pcap_path):
@@ -368,7 +380,7 @@ def decode_pcap(pcap_path, escher_port=1500):
             pass
 
         # Decode the map
-        decoded = decode_map(payload)
+        decoded = decode_map(payload, use_labels)
 
         direction = "client->server" if dst_port == escher_port else "server->client"
 
@@ -394,9 +406,11 @@ def main():
     parser.add_argument("output", help="Output JSON file")
     parser.add_argument("--port", type=int, default=1500,
                         help="TCP port carrying ESCHER traffic (default: 1500)")
+    parser.add_argument("--raw", action="store_true",
+                        help="Output raw 4-char symbols as keys instead of human-readable labels")
     args = parser.parse_args()
 
-    messages = decode_pcap(args.pcap, escher_port=args.port)
+    messages = decode_pcap(args.pcap, escher_port=args.port, use_labels=not args.raw)
 
     with open(args.output, 'w') as f:
         json.dump(messages, f, indent=2, ensure_ascii=False)

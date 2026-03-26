@@ -1,0 +1,1057 @@
+[
+  {
+    "_comment": "HTBT - Heartbeat",
+    "FOX Type": "HTBT",
+    "Header": {},
+    "Body": {}
+  },
+  {
+    "_comment": "WI - Wallet Info Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "WI  ",
+    "Header": {
+      "Request Number (CMID)": 1001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": "ACC001:1",
+      "Balance Type": 2,
+      "Balance Unit": 1,
+      "User Currency": 840,
+      "Service Provider ID": 101,
+      "Lock (milliseconds)": 500,
+      "Start Date No Filter": null,
+      "Suppress Plugins": null,
+      "Suppress Periodic Charge Plugin": null,
+      "Update Wallet Status": null,
+      "Account Type": 5,
+      "Account Reference": 999,
+      "Wallet Type": 1,
+      "Calling Line Identifier": "447700900123"
+    }
+  },
+  {
+    "_comment": "WI - Wallet Info Ack",
+    "FOX Action": "ACK ",
+    "FOX Type": "WI  ",
+    "Header": {
+      "Request Number (CMID)": 1001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "State": "ACTV",
+      "Expiry Date": "~date:1776627629",
+      "Max Concurrent": 3,
+      "Activation Date": "~date:1766259629",
+      "Last Use": "~date:1774032029",
+      "System Currency": 840,
+      "User Currency": 840,
+      "Balances": [
+        {
+          "Balance Type": 1,
+          "Limit Type": "DEBT",
+          "System Currency Total": 50000,
+          "Balance Unit": 1,
+          "Buckets": [
+            {
+              "ID": 1,
+              "Value": 50000,
+              "Expiry Date": "~date:1776627629"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "IR - Initial Reservation Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "IR  ",
+    "Header": {
+      "Request Number (CMID)": 2001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Reference": 999,
+      "Account Type": 5,
+      "Calling Line Identifier": "447700900123",
+      "Dialled Number": "447911234567",
+      "Call Date (GMT)": "~date:1774035629",
+      "Time Zone": "GMT",
+      "Expected Reservation Length": 120,
+      "Balance Cascade Override": 3,
+      "Tariff Plan Override": 7,
+      "Reservation Period Override": 300,
+      "Precision": "SECS",
+      "Charging Service Code": "STD01",
+      "Subscriber Reference": "447700900123:1"
+    }
+  },
+  {
+    "_comment": "IR - Initial Reservation Ack",
+    "FOX Action": "ACK ",
+    "FOX Type": "IR  ",
+    "Header": {
+      "Request Number (CMID)": 2001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Number": 120,
+      "Total": 14400,
+      "Low Threshold": 30,
+      "Free Call Disposition": "HON ",
+      "Tariff Code": "PEAK",
+      "Low Balance Announcement": 60
+    }
+  },
+  {
+    "_comment": "IR - Initial Reservation NAck (Insufficient Funds)",
+    "FOX Action": "NACK",
+    "FOX Type": "IR  ",
+    "Header": {
+      "Request Number (CMID)": 2002,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Code": "INSF",
+      "Error Description": "Insufficient funds in wallet 12345"
+    }
+  },
+  {
+    "_comment": "SR - Subsequent Reservation Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "SR  ",
+    "Header": {
+      "Request Number (CMID)": 2003,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Total Units Consumed": 60,
+      "Expected Reservation Length": 120,
+      "Number": 30
+    }
+  },
+  {
+    "_comment": "CR - Commit Reservation Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "CR  ",
+    "Header": {
+      "Request Number (CMID)": 2004,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Reason": "HANG",
+      "Number": 95,
+      "Call Date (GMT)": "~date:1774035629"
+    }
+  },
+  {
+    "_comment": "RR - Revoke Reservation Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "RR  ",
+    "Header": {
+      "Request Number (CMID)": 2005,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Reason": "UNKN"
+    }
+  },
+  {
+    "_comment": "ATC - Apply Tariffed Charge Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "ATC ",
+    "Header": {
+      "Request Number (CMID)": 3001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Reference": 999,
+      "Account Type": 5,
+      "Calling Line Identifier": "447700900123",
+      "Dialled Number": "447911234567",
+      "Call Date (GMT)": "~date:1774035629",
+      "Time Zone": "GMT",
+      "Number": 180,
+      "Reason": "HANG",
+      "Balance Type Override": 1,
+      "Balance Cascade Override": 3,
+      "Tariff Plan Override": 7,
+      "Precision": "SECS",
+      "Charging Service Code": "STD01",
+      "Subscriber Reference": "447700900123:1"
+    }
+  },
+  {
+    "_comment": "NE - Named Event Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "NE  ",
+    "Header": {
+      "Request Number (CMID)": 4001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Reference": 999,
+      "Account Type": 5,
+      "Call Date (GMT)": "~date:1774035629",
+      "Time Zone": "GMT",
+      "Named Events Array": [
+        {
+          "Class": "Data",
+          "Name": "GPRS_Session",
+          "Minimum": 1,
+          "Maximum": 100,
+          "Discount": 0
+        }
+      ],
+      "NSF Policy": 0,
+      "Wallet Type": 1,
+      "Balance Type Override": 2,
+      "Balance Cascade Override": 0
+    }
+  },
+  {
+    "_comment": "INER - Initial Named Event Reservation",
+    "FOX Action": "REQ ",
+    "FOX Type": "INER",
+    "Header": {
+      "Request Number (CMID)": 4010,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Reference": 999,
+      "Account Type": 5,
+      "Call Date (GMT)": "~date:1774035629",
+      "Time Zone": "GMT",
+      "Named Events Array": [
+        {
+          "Class": "Data",
+          "Name": "GPRS_Session",
+          "Minimum": 1,
+          "Maximum": 500,
+          "Discount": 0
+        }
+      ],
+      "Expected Reservation Length": 3600,
+      "Wallet Type": 1
+    }
+  },
+  {
+    "_comment": "SNER - Subsequent Named Event Reservation",
+    "FOX Action": "REQ ",
+    "FOX Type": "SNER",
+    "Header": {
+      "Request Number (CMID)": 4011,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Named Events Array": [
+        {
+          "Minimum": 1,
+          "Maximum": 500
+        }
+      ],
+      "Expected Reservation Length": 3600
+    }
+  },
+  {
+    "_comment": "CNER - Confirm Named Event Reservation",
+    "FOX Action": "REQ ",
+    "FOX Type": "CNER",
+    "Header": {
+      "Request Number (CMID)": 4012,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Named Events Array": [
+        {
+          "Number": 320,
+          "Discount": 0
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "RNER - Revoke Named Event Reservation",
+    "FOX Action": "REQ ",
+    "FOX Type": "RNER",
+    "Header": {
+      "Request Number (CMID)": 4013,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Named Events Array": [
+        {
+          "Number": 0,
+          "Discount": 0
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "IARR - Initial Amount Reservation Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "IARR",
+    "Header": {
+      "Request Number (CMID)": 5001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Type": 5,
+      "Account Reference": 999,
+      "Reservation Lifetime": 3600,
+      "Wallet Type": 1,
+      "Balance Type": 1,
+      "Preferred Amount": 10000,
+      "Minimum Amount": 1000,
+      "Balance Type Cascade": 2
+    }
+  },
+  {
+    "_comment": "IARR - Initial Amount Reservation Ack",
+    "FOX Action": "ACK ",
+    "FOX Type": "IARR",
+    "Header": {
+      "Request Number (CMID)": 5001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Reserved Amount": 10000,
+      "Session Time Left": 3600
+    }
+  },
+  {
+    "_comment": "SARR - Subsequent Amount Reservation",
+    "FOX Action": "REQ ",
+    "FOX Type": "SARR",
+    "Header": {
+      "Request Number (CMID)": 5002,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Reservation Lifetime": 3600,
+      "Preferred Amount": 10000,
+      "Minimum Amount": 1000
+    }
+  },
+  {
+    "_comment": "CARR - Confirm Amount Reservation",
+    "FOX Action": "REQ ",
+    "FOX Type": "CARR",
+    "Header": {
+      "Request Number (CMID)": 5003,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Reason": "HANG",
+      "Confirmed Amount": 8500
+    }
+  },
+  {
+    "_comment": "RARR - Revoke Amount Reservation",
+    "FOX Action": "REQ ",
+    "FOX Type": "RARR",
+    "Header": {
+      "Request Number (CMID)": 5004,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Reason": "UNKN"
+    }
+  },
+  {
+    "_comment": "DA - Direct Amount Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "DA  ",
+    "Header": {
+      "Request Number (CMID)": 6001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Type": 5,
+      "Account Reference": 999,
+      "Direct Delta Amount": -500,
+      "Wallet Type": 1,
+      "Balance Type": 1,
+      "Balance Type Cascade": 2,
+      "Balance Validity Modification": 0,
+      "Wallet Validity Modification": 0
+    }
+  },
+  {
+    "_comment": "USR - Unit Second Rate Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "USR ",
+    "Header": {
+      "Request Number (CMID)": 7001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Type": 5,
+      "Calling Line Identifier": "447700900123",
+      "Dialled Number": "447911234567",
+      "Call Date (GMT)": "~date:1774035629",
+      "Time Zone": "GMT",
+      "Account Reference": 999,
+      "Precision": "SECS",
+      "Charging Service Code": "STD01"
+    }
+  },
+  {
+    "_comment": "NER - Named Event Rate Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "NER ",
+    "Header": {
+      "Request Number (CMID)": 7002,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Type": 5,
+      "Class": "Data",
+      "Name": "GPRS_Session",
+      "Call Date (GMT)": "~date:1774035629",
+      "Time Zone": "GMT"
+    }
+  },
+  {
+    "_comment": "WC - Wallet Create Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "WC  ",
+    "Header": {
+      "Request Number (CMID)": 8001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 0,
+      "Calling Line Identifier": "447700900123",
+      "Wallet Type": 1,
+      "Account Type": 5,
+      "State": "ACTV",
+      "Max Concurrent": 3,
+      "Expiry Date": "~date:1805571629",
+      "Activation Date": "~date:1774035629",
+      "Service Provider ID": 101,
+      "Alter Balance": [
+        {
+          "Balance Type": 1,
+          "Limit Type": "DEBT",
+          "Buckets": [
+            {
+              "ID": 0,
+              "Value": 100000,
+              "Expiry Date": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "WU - Wallet Update Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "WU  ",
+    "Header": {
+      "Request Number (CMID)": 8002,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Reference": 999,
+      "Account Type": 5,
+      "State": "ACTV",
+      "Max Concurrent": 5,
+      "Suppress Plugins": null,
+      "Account Batch ID": 0,
+      "New Account Type": 6,
+      "Alter Balance": [
+        {
+          "Balance Type": 1,
+          "Buckets": [
+            {
+              "ID": 1,
+              "Value": 5000
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "WD - Wallet Delete Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "WD  ",
+    "Header": {
+      "Request Number (CMID)": 8003,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Calling Line Identifier": "447700900123",
+      "Wallet Type": 1,
+      "Account Type": 5,
+      "Delete Locked Wallet": null,
+      "Dont Log Remove Wallet": null
+    }
+  },
+  {
+    "_comment": "WGR - Wallet General Recharge Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "WGR ",
+    "Header": {
+      "Request Number (CMID)": 9001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Reference": 999,
+      "Account Type": 5,
+      "Service Provider ID": 101,
+      "Update Wallet Status": null,
+      "Return Wallet Info": null,
+      "Account Expiry": "~date:1805571629",
+      "Account Expiry Policy": "AXPB",
+      "Balance Expiry Policy": "BXPB",
+      "Account Expiry Extension": 720,
+      "Balance Expiry Extension": 720,
+      "Wallet Type": 1,
+      "Recharge Balance Info Array": [
+        {
+          "Balance Type": 1,
+          "Default Bucket Policy": "AXPB",
+          "Recharge Bucket Info Array": [
+            {
+              "Bucket ID": -1,
+              "Value": 10000,
+              "Balance Expiry Extension": 720,
+              "Balance Expiry Policy": "BXPB",
+              "New Bucket": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "VI - Voucher Info Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "VI  ",
+    "Header": {
+      "Request Number (CMID)": 10001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Voucher Number": "1234567890",
+      "Service Provider ID": 101
+    }
+  },
+  {
+    "_comment": "VR - Voucher Redeem Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "VR  ",
+    "Header": {
+      "Request Number (CMID)": 10002,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Voucher Number": "1234567890",
+      "Service Provider ID": 101,
+      "Redeeming Wallet ID": 12345,
+      "Account Type": 5,
+      "Recharging Account Reference": "447700900123",
+      "Scenario ID": 0
+    }
+  },
+  {
+    "_comment": "VR - Voucher Redeem NAck (Unknown Voucher)",
+    "FOX Action": "NACK",
+    "FOX Type": "VR  ",
+    "Header": {
+      "Request Number (CMID)": 10003,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Code": "NVOU",
+      "Error Description": "Voucher 9999999999 not found"
+    }
+  },
+  {
+    "_comment": "CVR - Commit Voucher Redeem",
+    "FOX Action": "REQ ",
+    "FOX Type": "CVR ",
+    "Header": {
+      "Request Number (CMID)": 10004,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Voucher Number": "1234567890",
+      "Scenario ID": 0
+    }
+  },
+  {
+    "_comment": "RVR - Revoke Voucher Redeem",
+    "FOX Action": "REQ ",
+    "FOX Type": "RVR ",
+    "Header": {
+      "Request Number (CMID)": 10005,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Voucher Number": "1234567890"
+    }
+  },
+  {
+    "_comment": "VRW - Voucher Redeem Wallet Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "VRW ",
+    "Header": {
+      "Request Number (CMID)": 10010,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Voucher Number": "1234567890",
+      "Service Provider ID": 101,
+      "Wallet Service Provider": 101,
+      "Redeeming Wallet ID": 12345,
+      "Account Reference": 999,
+      "Account Type": 5,
+      "BE Server ID": 1,
+      "Wallet Reference": "447700900123:1",
+      "Subscriber Reference": "447700900123",
+      "Recharging Account Reference": "447700900123",
+      "Redeem Wallet": 0,
+      "Update Wallet Status": null,
+      "Scenario ID": 0
+    }
+  },
+  {
+    "_comment": "VU - Voucher Update Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "VU  ",
+    "Header": {
+      "Request Number (CMID)": 10020,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Voucher Number": "1234567890",
+      "State": "RDMD",
+      "Redeeming Wallet ID": 12345,
+      "Call Date": "~date:1774035629"
+    }
+  },
+  {
+    "_comment": "VTR - Voucher Type Recharge Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "VTR ",
+    "Header": {
+      "Request Number (CMID)": 10030,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Voucher Type Name": "STANDARD_RECHARGE_10",
+      "Service Provider ID": 101,
+      "Wallet Reference": "447700900123:1",
+      "Account Reference": 999,
+      "Account Type": 5,
+      "BE Server ID": 1,
+      "Subscriber Reference": "447700900123",
+      "Return Voucher Info": null,
+      "Return Wallet Info": null,
+      "Update Wallet Status": null
+    }
+  },
+  {
+    "_comment": "VTRC - Voucher Type Recharge Confirm",
+    "FOX Action": "REQ ",
+    "FOX Type": "VTRC",
+    "Header": {
+      "Request Number (CMID)": 10031,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Reference": 999,
+      "Account Type": 5
+    }
+  },
+  {
+    "_comment": "BPIN - Bad PIN Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "BPIN",
+    "Header": {
+      "Request Number (CMID)": 11001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Account Reference": 999,
+      "Account Type": 5
+    }
+  },
+  {
+    "_comment": "BPIN - Bad PIN Ack",
+    "FOX Action": "ACK ",
+    "FOX Type": "BPIN",
+    "Header": {
+      "Request Number (CMID)": 11001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "State": "ACTV",
+      "Bad PIN Count": 1
+    }
+  },
+  {
+    "_comment": "LDMF - Reload MFile Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "LDMF",
+    "Header": {
+      "Request Number (CMID)": 12001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "MFile Type": "MAIN"
+    }
+  },
+  {
+    "_comment": "WRI - Wallet Reservations Info Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "WRI ",
+    "Header": {
+      "Request Number (CMID)": 13001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345
+    }
+  },
+  {
+    "_comment": "WRE - Wallet Reservation End Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "WRE ",
+    "Header": {
+      "Request Number (CMID)": 13002,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "SCP ID": 7,
+      "Call ID": 42,
+      "Reservation Operation": 1
+    }
+  },
+  {
+    "_comment": "MGW - Merge Wallets Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "MGW ",
+    "Header": {
+      "Request Number (CMID)": 14001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Service Provider ID": 101,
+      "Target Subscriber ID": 200,
+      "Target Wallet ID": 12345,
+      "Target Domain ID": 1,
+      "Target Account Type ID": 5,
+      "Source Subscriber ID": 300,
+      "Source Wallet ID": 67890,
+      "Source Domain ID": 1,
+      "Source CLI": "447700900456",
+      "Source Currency ID": 840,
+      "Source Account Type ID": 5,
+      "Source Wallet Type ID": 1
+    }
+  },
+  {
+    "_comment": "MGW - Merge Wallets NAck",
+    "FOX Action": "NACK",
+    "FOX Type": "MGW ",
+    "Header": {
+      "Request Number (CMID)": 14002,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Code": "NSSW",
+      "Error Description": "Source wallet 67890 not found"
+    }
+  },
+  {
+    "_comment": "WSI - Wallet State Information Request",
+    "FOX Action": "REQ ",
+    "FOX Type": "WSI ",
+    "Header": {
+      "Request Number (CMID)": 15001,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345
+    }
+  },
+  {
+    "_comment": "Exception - Processing Exception",
+    "FOX Action": "EXCP",
+    "FOX Type": "PROC",
+    "Header": {
+      "Request Number (CMID)": 9999,
+      "Call Date": "~date:1774035629",
+      "Duplicate Flag": 0,
+      "BE Server ID": 1,
+      "Micro Seconds": 247024,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Code": "PLUG",
+      "Error Description": "Processing Exception: Plugin: CCS RuntimeError: Could not find system currency in the MFILE"
+    }
+  },
+  {
+    "_comment": "VWARS Query Wallet Request (internal beServer->beVWARS)",
+    "FOX Action": "REQ ",
+    "FOX Type": "WALT",
+    "Transaction Type": "QRY ",
+    "Object Class": "WALT",
+    "Header": {
+      "Client ID": 7,
+      "Request Number (CMID)": 42,
+      "Call Date": "~date:1774035629",
+      "Micro Seconds": 12345,
+      "Duplicate Flag": 0,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Wallet Reference": 12345,
+      "Balance Type": 1,
+      "Lock (milliseconds)": 500
+    }
+  },
+  {
+    "_comment": "VWARS Command - Request All Contexts",
+    "FOX Action": "CMD ",
+    "Command Type": "RALL",
+    "Header": {
+      "Client ID": 7,
+      "Request Number (CMID)": 1,
+      "Protocol Version": 100
+    },
+    "Body": {}
+  },
+  {
+    "_comment": "VWARS Exception - Bad Data",
+    "FOX Action": "EXCP",
+    "FOX Type": "DATA",
+    "Header": {
+      "Client ID": 7,
+      "Request Number (CMID)": 42,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Code": "WALT",
+      "Error Description": "Wallet 99999 not found",
+      "String Value": "99999"
+    }
+  },
+  {
+    "_comment": "VWARS Exception - Message Sequence Error",
+    "FOX Action": "EXCP",
+    "FOX Type": "MSEQ",
+    "Header": {
+      "Client ID": 7,
+      "Request Number (CMID)": 42,
+      "Protocol Version": 100
+    },
+    "Body": {
+      "Code": "NWRS",
+      "Error Description": "No wallet reservation for commit"
+    }
+  }
+]

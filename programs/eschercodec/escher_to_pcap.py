@@ -59,6 +59,17 @@ def encode_symbol_int(s):
             ALPHABET.index(s[3]) *      8192)
 
 # ---------------------------------------------------------------------------
+# Load shared symbol mapping to support friendly labels as keys
+# ---------------------------------------------------------------------------
+LABEL_TO_SYMBOL = {}
+try:
+    with open(Path(__file__).parent / "escher_fields.json", "r") as f:
+        m = json.load(f)
+        LABEL_TO_SYMBOL = {v: k for k, v in m.items()}
+except Exception:
+    pass
+
+# ---------------------------------------------------------------------------
 # Type codes
 # ---------------------------------------------------------------------------
 TC_NULL   = 0
@@ -124,7 +135,9 @@ def encode_map(d):
     for raw_key, val in d.items():
         if raw_key.startswith("_"):  # skip comment keys
             continue
-        key = pad_sym(raw_key)
+        # Convert friendly label back to symbol if present
+        sym = LABEL_TO_SYMBOL.get(raw_key, raw_key)
+        key = pad_sym(sym)
         tc, data = encode_value(val)
         entries.append((key, tc, data))
 

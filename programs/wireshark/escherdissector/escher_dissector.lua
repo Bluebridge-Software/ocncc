@@ -38,7 +38,7 @@
 --                  bits [12:9]  typecode    (4 bits — same field positions)
 --                  bits  [8:0]  data_offset (9 bits, in 4-byte words from ARRAY START)
 --
--- TYPECODES (confirmed from source + PCAP):
+-- TYPECODES (PCAP):
 --   0  = NULL
 --   1  = INT32    (4 bytes, big-endian signed)
 --   2  = DATE     (4 bytes, unsigned unix timestamp)
@@ -50,7 +50,7 @@
 --   9  = INT64    (8 bytes, big-endian signed — observed in PCAP)
 --   12 = MAP      (nested ESCHER MAP — ESCHER_MAP_TYPE enum value is 12, NOT 7)
 --
--- SYMBOL ENCODING (from buildConversions.c):
+-- SYMBOL ENCODING:
 --   Alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZ " (A=0 ... Z=25, SPACE=26)
 --   char1 = floor(val / 161243136) % 27
 --   char2 = floor(val /   5971968) % 27
@@ -690,7 +690,7 @@ for sym, label in pairs(FIELD_LABELS) do
     SYMBOL_PROTO_FIELDS[sym] = ProtoField.string("escher." .. filter_name, label)
 end
 
--- Now finalize the fields registration
+-- Now finalise the fields registration
 do
     for _, f in pairs(SYMBOL_PROTO_FIELDS) do
         table.insert(fields, f)
