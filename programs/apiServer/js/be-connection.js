@@ -195,19 +195,25 @@ class BeConnection extends EventEmitter {
     // Process complete messages
     while (this._receiveBuffer.length >= 2) {
       const msgLen = this._receiveBuffer.readUInt16BE(0);
-      if (msgLen === 0 || msgLen > 65535) {
-        // Check for extended map format (0xFFFE)
-        if (this._receiveBuffer.readUInt16BE(0) === 0xFFFE && this._receiveBuffer.length >= 8) {
-          const extLen = this._receiveBuffer.readUInt32BE(4);
-          if (this._receiveBuffer.length < extLen) break;
-          const msgBuf = this._receiveBuffer.subarray(0, extLen);
-          this._receiveBuffer = this._receiveBuffer.subarray(extLen);
-          this._processMessage(msgBuf);
-        } else {
-          break;
-        }
+      if (msgLen === 0) {
+        // Invalid map length, drop it or handle error
+        break;
+      }
+
+      // Check for extended map format (0xFFFE)
+      if (msgLen === 0xFFFE) {
+        if (this._receiveBuffer.length < 8) break; // Need extended header
+        
+        const extLen = this._receiveBuffer.readUInt32BE(4);
+        if (this._receiveBuffer.length < extLen) break; // wait for more data
+        
+        const msgBuf = this._receiveBuffer.subarray(0, extLen);
+        this._receiveBuffer = this._receiveBuffer.subarray(extLen);
+        this._processMessage(msgBuf);
         continue;
       }
+
+      // Standard map length
       if (this._receiveBuffer.length < msgLen) break; // wait for more data
 
       const msgBuf = this._receiveBuffer.subarray(0, msgLen);

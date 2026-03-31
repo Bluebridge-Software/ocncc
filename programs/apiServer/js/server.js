@@ -20,6 +20,7 @@ const createRouter = require('./routes/api');
 const buildSpec = require('./swagger-spec');
 const createAuthMiddleware = require('./auth');
 const AlertManager = require('./alert-manager');
+const OracleConnector = require('./oracle-connector');
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -33,6 +34,11 @@ const PORT = config.get('port');
 const beClient = new BeClient(config);
 const statsTracker = new StatsTracker(config);
 const alertManager = new AlertManager(config);
+
+// ---------------------------------------------------------------------------
+// Initialise Oracle Connector
+// ---------------------------------------------------------------------------
+const oracleConnector = new OracleConnector();
 
 // ---------------------------------------------------------------------------
 // Express app setup
@@ -125,6 +131,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
+
 // ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------
@@ -135,7 +142,7 @@ function line(label, value = '') {
   return `║ ${content.padEnd(WIDTH - 1)}║`;
 }
 
-const server = app.listen(PORT, config.get('host'), () => {
+const server = app.listen(PORT, config.get('host'), async () => {
   const baseUrl = config.get('serverUrl');
 
   console.log('');
@@ -192,4 +199,4 @@ process.on('SIGTERM', () => {
   });
 });
 
-module.exports = app;
+module.exports = app, oracleConnector;

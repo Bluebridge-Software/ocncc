@@ -42,6 +42,10 @@
 13. [Integration Examples](#13-integration-examples)
 14. [Security Best Practices](#14-security-best-practices)
 15. [Field Symbol Reference (Raw Format)](#15-field-symbol-reference-raw-format)
+16. [Extended Wallet Features](#16-extended-wallet-features)
+    - 16.1 [Future-Dated Buckets (STDT)](#161-future-dated-buckets-stdt)
+    - 16.2 [Multi-Bucket Updates in a Single Message](#162-multi-bucket-updates-in-a-single-message)
+    - 16.3 [Extended Message Fields](#163-extended-message-fields)
 
 ---
 
@@ -856,6 +860,8 @@ Performs a generalised recharge operation on a wallet, applying credit to one or
 | `BPOL` | Balance Expiry Policy | Symbol | O | Policy symbol for balance expiry calculation (e.g. `"BXPB"`). |
 | `AEXT` | Account Expiry Extension | int | O | Number of days to extend the account expiry. |
 | `BEXT` | Balance Expiry Extension | int | O | Number of days to extend the balance expiry. |
+| `ACFB` | Apply Config Bonus | null | O | If present, applies configured bonus logic to the recharge. |
+| `MBPO` | Missing Balance Policy | Symbol | O | Policy if balance type doesn't exist (`MBPA` = Allow, `MBPF` = Fail). |
 | `UDWS` | Update Wallet Status | null | O | Controls wallet status update. |
 | `RBAA` | Recharge Balance Array | array | **M** | Array of recharge balance instructions. See `RBAA` structure below. |
 
@@ -2106,33 +2112,41 @@ elif vr_data['message']['ACTN'] == 'ACK ':
 
 ---
 
-### Example 4: Using the Friendly Format
+### Example 4: Complex Multi-Balance Update (Raw Format)
+
+This example demonstrates updating multiple balance types and bucket values in a single atomic message using raw symbols.
 
 ```javascript
-const friendlyPayload = {
-  "FOX Action": "REQ ",
-  "FOX Type": "WI  ",
-  "Header": {
-    "Request Number (CMID)": 1055,
-    "BE Server ID": 1
-  },
-  "Body": {
-    "Wallet Reference": 447700900123,
-    "Balance Type": 2
+const payload = {
+  "ACTN": "REQ ",
+  "TYPE": "WU  ",
+  "HEAD": { "SVID": 1, "CMID": 9005 },
+  "BODY": {
+    "WALT": 12345,
+    "ABAL": [
+      {
+        "BTYP": 1,
+        "BKTS": [{ "BKID": 101, "VAL ": 5000 }]
+      },
+      {
+        "BTYP": 4,
+        "BKTS": [{ "BKID": -1, "VAL ": 100, "EXPR": 1784035629 }]
+      }
+    ]
   }
 };
 
-const response = await fetch(`${API_BASE_URL}/wallet-info`, {
+const response = await fetch(`${API_BASE_URL}/wallet-update`, {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`
   },
-  body: JSON.stringify(friendlyPayload)
+  body: JSON.stringify(payload)
 });
 
-const { format, message } = await response.json();
-// format will be "friendly"
+const { message } = await response.json();
+// Raw format responses will also use symbols (ACTN, TYPE, etc.)
 // message will use human-readable keys
 console.log('Response format:', format); // "friendly"
 ```
@@ -2330,6 +2344,104 @@ This section provides a consolidated reference of all 4-character symbols used a
 | `AEXT` | Account Expiry Extension | int |
 | `BEXT` | Balance Expiry Extension | int |
 | `AEXP` | Account Expiry Date | date |
+
+---
+
+## 16. Extended Wallet Features
+
+The OCNCC BE Client supports advanced "Extended" feature logic for granular balance management, specifically around future-dated buckets and complex lifecycle updates.
+
+### 16.1 Future-Dated Buckets (STDT)
+
+The Billing Engine allows buckets to be created with a **Start Date (`STDT`)** in the future. These buckets are inactive and hidden from standard balance queries until their start date is reached.
+
+#### Visibility via "Start Date No Filter" (SDNF)
+
+To retrieve all buckets, including those with a future start date, use the `SDNF` field in a `WI` (Wallet Info) request.
+
+**Request Example (Raw Format):**
+```json
+{
+  "ACTN": "REQ ",
+  "TYPE": "WI  ",
+  "BODY": {
+    "WALR": "447700900123",
+    "SDNF": null
+  }
+}
+```
+*Note: Setting `SDNF` to `null` disables the default BE date filtering logic.*
+
+#### Adding Future-Dated Buckets (WU)
+
+When performing a `WU` (Wallet Update), you can provision buckets that only become available for consumption at a specific future timestamp.
+
+**Request Example (Adding a Future Bucket):**
+```json
+{
+  "ACTN": "REQ ",
+  "TYPE": "WU  ",
+  "HEAD": { "CMID": 5001 },
+  "BODY": {
+    "WALT": 12345,
+    "ABAL": [
+      {
+        "BTYP": 1,
+        "BKTS": [
+          {
+            "VAL ": 1000,
+            "STDT": 1750000000,
+            "EXPR": 1760000000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 16.2 Multi-Bucket Updates in a Single Message
+
+The `Alter Balances` (`ABAL`) field is an array, allowing you to modify multiple balance types or multiple buckets within a single atomic operation.
+
+**Example: Deducting from one balance while adding a future bucket to another:**
+```json
+{
+  "ACTN": "REQ ",
+  "TYPE": "WU  ",
+  "BODY": {
+    "WALT": 12345,
+    "ABAL": [
+      {
+        "BTYP": 1,
+        "BKTS": [
+          { "BKID": 1, "VAL ": -500 }
+        ]
+      },
+      {
+        "BTYP": 2,
+        "BKTS": [
+          {
+            "VAL ": 5000,
+            "STDT": 1745000000,
+            "EXPR": 1755000000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 16.3 Extended Message Fields
+
+| Symbol | Friendly Name | Type | Usage |
+| :--- | :--- | :--- | :--- |
+| `SDNF` | Start Date No Filter | null | Set to `null` in `WI` to see future buckets. |
+| `STDT` | Start Date | date | The timestamp when a bucket becomes active. |
+| `ABAL` | Alter Balances | array | Container for balance/bucket modifications in `WU`. |
+| `BKTS` | Buckets | array | Nested array within `ABAL` for specific bucket changes. |
+| `EDRC` | Create EDR | int | Set to `1` in `WU` to force EDR generation for the update. |
 
 ---
 

@@ -30,7 +30,17 @@ const TC_MAP = 12;
 // Symbol encoding / decoding
 // ---------------------------------------------------------------------------
 function padSym(s) {
-  return (s + '    ').substring(0, 4);
+  // Pad short symbols with trailing spaces to reach exactly 4 chars.
+  if (s.length < 4) return (s + '    ').substring(0, 4);
+  if (s.length === 4) return s;
+  // Longer than 4 chars: trim trailing spaces down to 4 if possible.
+  // e.g. "VAL   " -> "VAL " is valid; "TOOLONG" -> throw.
+  const trimmed = s.trimEnd();
+  if (trimmed.length <= 4) return (trimmed + '    ').substring(0, 4);
+  throw new Error(
+    `Escher symbol "${s}" is ${s.length} chars but the maximum is 4. ` +
+    `Symbols must be 1–4 uppercase letters (A-Z or space).`
+  );
 }
 
 function isSymbolValue(s) {
@@ -70,9 +80,20 @@ function align4(n) {
 // ---------------------------------------------------------------------------
 // Date formatting
 // ---------------------------------------------------------------------------
+/**
+ * Format a DATE typecode value (u32 unix timestamp) into the same structure
+ * that pcap_to_escher.py produces, so messages decoded by either implementation
+ * have an identical shape.
+ *
+ * To RE-ENCODE a decoded date, pass `"~date:" + value.unix` to encodeValue.
+ */
 function formatDateField(ts) {
   const d = new Date(ts * 1000);
-  return `~date:${ts}`;
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  const utc =
+    `${pad(d.getUTCFullYear(), 4)}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
+  return { _type: 'date', unix: ts, utc };
 }
 
 // ---------------------------------------------------------------------------
@@ -114,8 +135,25 @@ function encodeValue(v) {
     buf.writeUInt32BE(ts >>> 0, 0);
     return { tc: TC_DATE, data: buf };
   }
+  // Accept the rich date object produced by the decoder (or pcap_to_escher.py)
+  if (v !== null && typeof v === 'object' && v._type === 'date' && typeof v.unix === 'number') {
+    const buf = Buffer.alloc(4);
+    buf.writeUInt32BE(v.unix >>> 0, 0);
+    return { tc: TC_DATE, data: buf };
+  }
   if (typeof v === 'boolean') {
     return { tc: TC_NULL, data: Buffer.alloc(0) };
+  }
+  // Accept both Number integers and BigInt
+  if (typeof v === 'bigint') {
+    if (v >= -2147483648n && v <= 2147483647n) {
+      const buf = Buffer.alloc(4);
+      buf.writeInt32BE(Number(v), 0);
+      return { tc: TC_INT32, data: buf };
+    }
+    const buf = Buffer.alloc(8);
+    buf.writeBigInt64BE(v, 0);
+    return { tc: TC_INT64, data: buf };
   }
   if (typeof v === 'number' && Number.isInteger(v)) {
     if (v >= -2147483648 && v <= 2147483647) {
@@ -155,10 +193,34 @@ function encodeMap(d) {
     // Convert friendly label back to symbol if present
     const sym = LABEL_TO_SYMBOL[rawKey] || rawKey;
     const key = padSym(sym);
+    // Validate: all characters must be in the Escher alphabet (A-Z + space).
+    // Lowercase or non-alphabet characters produce a garbage symbol on the wire.
+    for (const c of key) {
+      if (!ALPHABET.includes(c)) {
+        throw new Error(
+          `Escher map key "${rawKey}" (padded: "${key}") contains character ` +
+          `"${c}" which is not in the Escher alphabet (A-Z, space). ` +
+          `Keys must be 1–4 uppercase letters; use escher_fields.json labels or raw symbols.`
+        );
+      }
+    }
     const { tc, data } = encodeValue(val);
     entries.push({ key, tc, data });
   }
 
+  // Sort map keys by their 32-bit symbol representation.
+  // The Escher server uses binary search on the index, so keys MUST be
+  // sorted in ascending symbol-integer order.  The Escher alphabet gives
+  // ' ' (space) a higher ordinal value than 'Z', so plain ASCII order is wrong.
+  // Use explicit < / > rather than subtraction: both operands are uint32 (up to
+  // ~4.2 B), and their difference can exceed 2^31, making the subtraction trick
+  // unreliable when the comparator result is then coerced to a signed integer
+  // internally by some JS engines.
+  entries.sort((a, b) => {
+    const va = encodeSymbolInt(a.key);
+    const vb = encodeSymbolInt(b.key);
+    return va < vb ? -1 : va > vb ? 1 : 0;
+  });
   const n = entries.length;
   const dataStart = align4(8 + n * 4);
 
@@ -205,7 +267,10 @@ function encodeArray(lst) {
   }
 
   const n = entries.length;
-  const dataStart = align4(8 + n * 2);
+  // Array header is 4 bytes: [u16 total_byte_length][u16 num_items].
+  // There is NO internal_ptr field (unlike a MAP which has an 8-byte header).
+  // Index entries (2 bytes each) start immediately at byte 4.
+  const dataStart = align4(4 + n * 2);
 
   const offsets = [];
   const dataParts = [];
@@ -225,11 +290,11 @@ function encodeArray(lst) {
 
   buf.writeUInt16BE(totalLen, 0);
   buf.writeUInt16BE(n, 2);
-  buf.writeUInt32BE(0, 4);
+  // No ptr field written — index entries begin at byte 4.
 
   for (let i = 0; i < entries.length; i++) {
     const entry = ((entries[i].tc & 0xF) << 9) | (offsets[i] & 0x1FF);
-    buf.writeUInt16BE(entry, 8 + i * 2);
+    buf.writeUInt16BE(entry, 4 + i * 2);
   }
 
   let writePos = dataStart;
@@ -293,7 +358,7 @@ function decodeMap(data, useLabels = true) {
 }
 
 function decodeArray(data, useLabels = true) {
-  if (data.length < 8) return [];
+  if (data.length < 4) return [];
 
   const firstU16 = data.readUInt16BE(0);
   let numItems, itemsStart, extIndex;
@@ -307,7 +372,9 @@ function decodeArray(data, useLabels = true) {
   } else {
     numItems = data.readUInt16BE(2);
     extIndex = false;
-    itemsStart = 8;
+    // Array header is [u16 total][u16 n] = 4 bytes. No internal_ptr field.
+    // Index entries begin immediately at byte 4.
+    itemsStart = 4;
   }
 
   const itemStride = extIndex ? 6 : 2;
@@ -376,6 +443,7 @@ function decodeValue(data, typecode, absOff, useLabels = true) {
     }
 
     case TC_ARRAY:
+    case 11: // TC_LIST (similar to Array, used for Vectors like BALS)
       return decodeArray(vd, useLabels);
 
     case TC_RAW: {
@@ -384,9 +452,16 @@ function decodeValue(data, typecode, absOff, useLabels = true) {
       return { _type: 'raw', hex: vd.subarray(4, 4 + rawLen).toString('hex') };
     }
 
-    case TC_INT64:
+    case TC_INT64: {
       if (vd.length < 8) return null;
-      return Number(vd.readBigInt64BE(0));
+      const big = vd.readBigInt64BE(0);
+      // Return a plain Number when the value fits in the safe-integer range
+      // (i.e. no precision is lost).  For values outside that range, return a
+      // BigInt so the caller is not silently handed a rounded value.
+      return big >= Number.MIN_SAFE_INTEGER && big <= Number.MAX_SAFE_INTEGER
+        ? Number(big)
+        : big;
+    }
 
     case TC_MAP:
       return decodeMap(vd, useLabels);

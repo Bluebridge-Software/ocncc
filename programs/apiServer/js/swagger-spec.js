@@ -77,7 +77,7 @@ function buildSpec(serverUrl, serverDescription) {
             { $ref: '#/components/parameters/billingEngineId' },
             { $ref: '#/components/parameters/responseFormat' }
           ],
-          requestBody: { $ref: '#/components/requestBodies/GenericMessage' },
+          requestBody: { $ref: '#/components/requestBodies/WalletInfoMessage' },
           responses: { 200: { $ref: '#/components/responses/EscherResponse' }, 400: { $ref: '#/components/responses/Error400' }, 502: { $ref: '#/components/responses/Error502' }, 504: { $ref: '#/components/responses/Error504' } }
         }
       },
@@ -90,7 +90,7 @@ function buildSpec(serverUrl, serverDescription) {
             { $ref: '#/components/parameters/billingEngineId' },
             { $ref: '#/components/parameters/responseFormat' }
           ],
-          requestBody: { $ref: '#/components/requestBodies/GenericMessage' },
+          requestBody: { $ref: '#/components/requestBodies/WalletStateInfoMessage' },
           responses: { 200: { $ref: '#/components/responses/EscherResponse' }, 400: { $ref: '#/components/responses/Error400' }, 502: { $ref: '#/components/responses/Error502' }, 504: { $ref: '#/components/responses/Error504' } }
         }
       },
@@ -336,7 +336,7 @@ function buildSpec(serverUrl, serverDescription) {
             { $ref: '#/components/parameters/billingEngineId' },
             { $ref: '#/components/parameters/responseFormat' }
           ],
-          requestBody: { $ref: '#/components/requestBodies/GenericMessage' },
+          requestBody: { $ref: '#/components/requestBodies/WalletCreateMessage' },
           responses: { 200: { $ref: '#/components/responses/EscherResponse' }, 400: { $ref: '#/components/responses/Error400' }, 502: { $ref: '#/components/responses/Error502' }, 504: { $ref: '#/components/responses/Error504' } }
         }
       },
@@ -349,7 +349,7 @@ function buildSpec(serverUrl, serverDescription) {
             { $ref: '#/components/parameters/billingEngineId' },
             { $ref: '#/components/parameters/responseFormat' }
           ],
-          requestBody: { $ref: '#/components/requestBodies/GenericMessage' },
+          requestBody: { $ref: '#/components/requestBodies/WalletUpdateMessage' },
           responses: { 200: { $ref: '#/components/responses/EscherResponse' }, 400: { $ref: '#/components/responses/Error400' }, 502: { $ref: '#/components/responses/Error502' }, 504: { $ref: '#/components/responses/Error504' } }
         }
       },
@@ -362,7 +362,7 @@ function buildSpec(serverUrl, serverDescription) {
             { $ref: '#/components/parameters/billingEngineId' },
             { $ref: '#/components/parameters/responseFormat' }
           ],
-          requestBody: { $ref: '#/components/requestBodies/GenericMessage' },
+          requestBody: { $ref: '#/components/requestBodies/WalletDeleteMessage' },
           responses: { 200: { $ref: '#/components/responses/EscherResponse' }, 400: { $ref: '#/components/responses/Error400' }, 502: { $ref: '#/components/responses/Error502' }, 504: { $ref: '#/components/responses/Error504' } }
         }
       },
@@ -676,7 +676,7 @@ function buildSpec(serverUrl, serverDescription) {
           in: 'query',
           description: 'Response format: raw (4-char symbols), friendly (human-readable), or both (default)',
           required: false,
-          schema: { type: 'string', enum: ['raw', 'friendly', 'both'], default: 'both' }
+          schema: { type: 'string', enum: ['raw', 'friendly', 'both'], default: 'raw' }
         },
         isNewDialog: {
           name: 'isNewDialog',
@@ -724,7 +724,217 @@ function buildSpec(serverUrl, serverDescription) {
               }
             }
           }
-        }
+        },
+        WalletCreateMessage: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'Wallet Create message in raw or friendly JSON format',
+                example: {
+                  "_comment": "WC - Wallet Create Request",
+                  "ACTN": "REQ ",
+                  "TYPE": "WC  ",
+                  "HEAD": {
+                    "CMID": 1001,
+                    "DATE": "~date:1774035629",
+                    "DUP ": 0,
+                    "SVID": 1,
+                    "USEC": 247024,
+                    "VER ": 100
+                  },
+                  "BODY": {
+                    "ABAL": [
+                      {
+                        "BKTS": [
+                          {
+                            "EXPR": null,
+                            "ID  ": 0,
+                            "VAL ": 100000
+                          }
+                        ],
+                        "BTYP": 1,
+                        "LIMT": "DEBT"
+                      },
+                      {
+                        "BKTS": [
+                          {
+                            "EXPR": null,
+                            "ID  ": 0,
+                            "STDT": "~date:1774035629",
+                            "VAL ": 100000
+                          }
+                        ],
+                        "BTYP": 2,
+                        "LIMT": "DEBT"
+                      }
+                    ],
+                    "ACTV": null,
+                    "ACTY": 1,
+                    "CLI ": "07917321654",
+                    "EXPR": null,
+                    "LUSE": null,
+                    "MAXC": 1,
+                    "STAT": "PREU",
+                    "WALT": 22,
+                    "WTYP": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        WalletDeleteMessage: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'Wallet Delete message in raw or friendly JSON format',
+                example: {
+                  "_comment": "WD - Wallet Delete Request",
+                  "ACTN": "REQ ",
+                  "TYPE": "WD  ",
+                  "HEAD": {
+                    "CMID": 1001,
+                    "DATE": "~date:1774035629",
+                    "DUP ": 0,
+                    "SVID": 1,
+                    "USEC": 247024,
+                    "VER ": 100
+                  },
+                  "BODY": {
+                    "WALT": 12345
+                  }
+                }
+              }
+            }
+          }
+        },
+        WalletInfoMessage: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'Wallet Info message in raw or friendly JSON format',
+                example: {
+                  "_comment": "WI - Wallet Info Request",
+                  "ACTN": "REQ ",
+                  "TYPE": "WI  ",
+                  "HEAD": {
+                    "CMID": 1001,
+                    "DATE": "~date:1774035629",
+                    "DUP ": 0,
+                    "SVID": 1,
+                    "USEC": 247024,
+                    "VER ": 100
+                  },
+                  "BODY": {
+                    "WALT": 12345
+                  }
+                }
+              }
+            }
+          }
+        },
+        WalletStateInfoMessage: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'Wallet State Info message in raw or friendly JSON format',
+                example: {
+                  "_comment": "WSI - Wallet State Info Request",
+                  "ACTN": "REQ ",
+                  "TYPE": "WSI ",
+                  "HEAD": {
+                    "CMID": 1001,
+                    "DATE": "~date:1774035629",
+                    "DUP ": 0,
+                    "SVID": 1,
+                    "USEC": 247024,
+                    "VER ": 100
+                  },
+                  "BODY": {
+                    "WALT": 12345
+                  }
+                }
+              }
+            }
+          }
+        },
+        WalletUpdateMessage: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'Wallet Update message in raw or friendly JSON format',
+                example: {
+                  "_comment": "WU - Wallet Update Request",
+                  "ACTN": "REQ ",
+                  "TYPE": "WU  ",
+                  "HEAD": {
+                    "CMID": 1001,
+                    "DATE": "1774035629",
+                    "DUP ": 0,
+                    "SVID": 1,
+                    "USEC": 247024,
+                    "VER ": 100
+                  },
+                  "BODY": {
+                    "WALT": 12345,
+                    "ABAL": [
+                      {
+                        "BTYP": 1,
+                        "LIMT": "DEBT",
+                        "BKTS": [
+                          {
+                            "ID  ": 0,
+                            "VAL ": 100000,
+                            "EXPR": null
+                          },
+                        ]
+                      },
+                      {
+                        "BTYP": 2,
+                        "LIMT": "DEBT",
+                        "BKTS": [
+                          {
+                            "ID  ": 0,
+                            "VAL ": 100000,
+                            "EXPR": null,
+                            "STDT": "1774035629"
+                          },
+                        ]
+                      }
+                    ],
+                    "ACTY": 1,
+                    "AREF": 4,
+                    "CDR ": [
+                      {
+                        "TAG ": "USER",
+                        "VAL ": "SU"
+                      },
+                      {
+                        "TAG ": "TERMINAL",
+                        "VAL ": "127.0.0.1"
+                      },
+                      {
+                        "TAG ": "WALLET_TYPE",
+                        "VAL ": 1
+                      }
+                    ],
+                    "WALT": 4,
+                  }
+                }
+              }
+            }
+          }
+        },
       },
       responses: {
         EscherResponse: {

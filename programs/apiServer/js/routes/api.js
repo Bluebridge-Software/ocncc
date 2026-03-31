@@ -1,5 +1,11 @@
-// routes/api.js
-// API route handlers
+/**
+ * OCNCC API Server.
+ * Handles API requests and forwards them to the billing engine.
+ *
+ * © COPYRIGHT: Blue Bridge Software Ltd - 2026
+ * Author: Tony Craven
+ */
+
 
 'use strict';
 
@@ -98,6 +104,7 @@ function createRouter(beClient, statsTracker) {
   // ---------------------------------------------------------------------------
   for (const [path, info] of Object.entries(ENDPOINT_TYPES)) {
     router.post(path, async (req, res) => {
+      let options;
       try {
         const message = req.body;
         if (!message || typeof message !== 'object') {
@@ -116,7 +123,7 @@ function createRouter(beClient, statsTracker) {
           if (!message['ACTN']) message['ACTN'] = info.action;
         }
 
-        const options = {
+        options = {
           billingEngineId: req.query.billingEngineId ? parseInt(req.query.billingEngineId, 10) : undefined,
           responseFormat: req.query.format || (isFriendly ? 'friendly' : 'raw'),
           isNewDialog: req.query.isNewDialog !== undefined ? req.query.isNewDialog !== 'false' : info.isNew,

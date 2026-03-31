@@ -124,6 +124,7 @@ TC_STRING = 5
 TC_ARRAY  = 6
 TC_RAW    = 8
 TC_INT64  = 9
+TC_LIST   = 11
 TC_MAP    = 12
 
 def align4(n):
@@ -248,7 +249,7 @@ def decode_value(data, typecode, abs_off, use_labels=True):
         if len(vd) < 4:
             return None
         ts = struct.unpack('>I', vd[:4])[0]
-        return format_date_field(ts)
+        return ts
 
     elif typecode == TC_SYMBOL:
         if len(vd) < 4:
@@ -285,7 +286,7 @@ def decode_value(data, typecode, abs_off, use_labels=True):
         except UnicodeDecodeError:
             return {"_type": "bytes", "hex": s_data.hex()}
 
-    elif typecode == TC_ARRAY:
+    elif typecode == TC_ARRAY or typecode == TC_LIST:
         return decode_array(vd, use_labels)
 
     elif typecode == TC_RAW:
@@ -339,14 +340,17 @@ def read_pcap(path):
             continue          # not IPv4
 
         # IPv4
-        ihl   = (pkt[14] & 0x0F) * 4
-        proto = pkt[14 + 9]
+        ip_start = 14
+        ihl      = (pkt[ip_start] & 0x0F) * 4
+        proto    = pkt[ip_start + 9]
         if proto != 6:
             continue          # not TCP
-        ip_end = 14 + ihl
+        ip_end = ip_start + ihl
 
-        src_ip = '.'.join(str(b) for b in pkt[ip_end + 12:ip_end + 16])
-        dst_ip = '.'.join(str(b) for b in pkt[ip_end + 16:ip_end + 20])
+        # Source and destination addresses are at fixed offsets from the
+        # IP header START (ip_start), not from ip_end (which is the TCP start).
+        src_ip = '.'.join(str(b) for b in pkt[ip_start + 12:ip_start + 16])
+        dst_ip = '.'.join(str(b) for b in pkt[ip_start + 16:ip_start + 20])
 
         # TCP
         tcp_data_off = (pkt[ip_end + 12] >> 4) * 4
