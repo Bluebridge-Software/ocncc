@@ -21,26 +21,61 @@ const TC_DATE = 2;
 const TC_SYMBOL = 3;
 const TC_FLOAT = 4;
 const TC_STRING = 5;
-const TC_ARRAY = 6;
+const TC_ARRAY = 6;   // decoded only — the billing engine sends TC_LIST for all arrays
+const TC_LIST = 11;   // used by the billing engine for ALL array values (ABAL, BKTS, CDR, BALS …)
 const TC_RAW = 8;
 const TC_INT64 = 9;
 const TC_MAP = 12;
 
 // ---------------------------------------------------------------------------
+// Fields that the billing engine always encodes as INT64, even when the value
+// fits in INT32.  Derived from live PCAP analysis: wallet IDs, bucket IDs, and
+// monetary/unit amounts are INT64; small enum-like values (BTYP, BUNT, ACTY …)
+// are INT32.
+// ---------------------------------------------------------------------------
+const INT64_FIELDS = new Set([
+  'CMID', // request serial number
+  'WALT', // wallet ID
+  'AREF', // account reference
+  'ID  ', // bucket ID (inside BKTS)
+  'VAL ', // monetary value (inside BKTS and CDR)
+  'UVAL', // unit value
+  'STOT', // system total
+  'UTOT', // unit total
+  'BDLT', // balance delta
+  'CNFM', // confirmed amount
+  'DELT', // delta amount
+  'AMNT', // amount
+  'MINA', // minimum amount
+  'MCHG', // max charge
+]);
+
+// ---------------------------------------------------------------------------
+// Fields whose VALUES must always be encoded as TC_STRING, even if the value
+// happens to be exactly 4 uppercase characters that would normally satisfy
+// isSymbolValue().  The billing engine's C++ struct for these fields declares
+// the value as std::string, not Symbol — sending TC_SYMBOL causes a TYFD
+// ("Bad type for field") exception.
+//
+// Example: TAG ="USER" inside a CDR map.  "USER" is 4 uppercase chars so
+// isSymbolValue() returns true, but the server rejects TC_SYMBOL for TAG .
+// ---------------------------------------------------------------------------
+const STRING_VALUE_FIELDS = new Set([
+  'TAG ', // CDR tag name — always free-form text (USER, TERMINAL, MSISDN …)
+  //'VAL ', // CDR value — always free-form text (USER, TERMINAL, MSISDN …)
+  'NAME', // client/entity name
+  'WHAT', // error description text
+  'STRV', // string value (explicit string field by protocol definition)
+  'SNUS', // serial number string
+  'SCNM', // scenario name
+  'VNME', // voucher type name
+]);
+
+// ---------------------------------------------------------------------------
 // Symbol encoding / decoding
 // ---------------------------------------------------------------------------
 function padSym(s) {
-  // Pad short symbols with trailing spaces to reach exactly 4 chars.
-  if (s.length < 4) return (s + '    ').substring(0, 4);
-  if (s.length === 4) return s;
-  // Longer than 4 chars: trim trailing spaces down to 4 if possible.
-  // e.g. "VAL   " -> "VAL " is valid; "TOOLONG" -> throw.
-  const trimmed = s.trimEnd();
-  if (trimmed.length <= 4) return (trimmed + '    ').substring(0, 4);
-  throw new Error(
-    `Escher symbol "${s}" is ${s.length} chars but the maximum is 4. ` +
-    `Symbols must be 1–4 uppercase letters (A-Z or space).`
-  );
+  return (s + '    ').substring(0, 4);
 }
 
 function isSymbolValue(s) {
@@ -125,7 +160,7 @@ function encodeFloat64Wire(v) {
   return Buffer.from([buf[7], buf[6], buf[5], buf[4], buf[3], buf[2], buf[1], buf[0]]);
 }
 
-function encodeValue(v) {
+function encodeValue(v, forceInt64 = false, forceString = false) {
   if (v === null || v === undefined) {
     return { tc: TC_NULL, data: Buffer.alloc(0) };
   }
@@ -146,7 +181,7 @@ function encodeValue(v) {
   }
   // Accept both Number integers and BigInt
   if (typeof v === 'bigint') {
-    if (v >= -2147483648n && v <= 2147483647n) {
+    if (!forceInt64 && v >= -2147483648n && v <= 2147483647n) {
       const buf = Buffer.alloc(4);
       buf.writeInt32BE(Number(v), 0);
       return { tc: TC_INT32, data: buf };
@@ -156,21 +191,25 @@ function encodeValue(v) {
     return { tc: TC_INT64, data: buf };
   }
   if (typeof v === 'number' && Number.isInteger(v)) {
-    if (v >= -2147483648 && v <= 2147483647) {
-      const buf = Buffer.alloc(4);
-      buf.writeInt32BE(v, 0);
-      return { tc: TC_INT32, data: buf };
-    } else {
+    // forceInt64: fields like CMID, WALT, VAL  are always 64-bit in the billing engine
+    if (forceInt64 || v < -2147483648 || v > 2147483647) {
       const buf = Buffer.alloc(8);
       buf.writeBigInt64BE(BigInt(v), 0);
       return { tc: TC_INT64, data: buf };
     }
+    const buf = Buffer.alloc(4);
+    buf.writeInt32BE(v, 0);
+    return { tc: TC_INT32, data: buf };
   }
   if (typeof v === 'number') {
     return { tc: TC_FLOAT, data: encodeFloat64Wire(v) };
   }
   if (typeof v === 'string') {
-    if (isSymbolValue(v)) {
+    // forceString: fields declared as std::string in the billing engine must always
+    // use TC_STRING even if the value is 4 uppercase chars (e.g. TAG ="USER").
+    // Without this, isSymbolValue("USER") returns true and we'd send TC_SYMBOL,
+    // which causes a TYFD ("Bad type for field") exception from the server.
+    if (!forceString && isSymbolValue(v)) {
       const buf = Buffer.alloc(4);
       buf.writeUInt32BE(encodeSymbolInt(v), 0);
       return { tc: TC_SYMBOL, data: buf };
@@ -178,7 +217,8 @@ function encodeValue(v) {
     return { tc: TC_STRING, data: encodeString(v) };
   }
   if (Array.isArray(v)) {
-    return { tc: TC_ARRAY, data: encodeArray(v) };
+    // The billing engine always uses TC_LIST (11) for array values, not TC_ARRAY (6).
+    return { tc: TC_LIST, data: encodeArray(v) };
   }
   if (typeof v === 'object') {
     return { tc: TC_MAP, data: encodeMap(v) };
@@ -204,7 +244,15 @@ function encodeMap(d) {
         );
       }
     }
-    const { tc, data } = encodeValue(val);
+    // Some fields must always be encoded as INT64 regardless of value magnitude,
+    // because the billing engine's C++ structs declare them as 64-bit integers.
+    const forceInt64 = INT64_FIELDS.has(key);
+    // Some fields must always be encoded as TC_STRING even if the value is exactly
+    // 4 uppercase characters (which would normally match isSymbolValue).  The
+    // billing engine declares these fields as std::string in C++; sending TC_SYMBOL
+    // causes a TYFD ("Bad type for field") exception.
+    const forceString = STRING_VALUE_FIELDS.has(key);
+    const { tc, data } = encodeValue(val, forceInt64, forceString);
     entries.push({ key, tc, data });
   }
 
@@ -267,10 +315,11 @@ function encodeArray(lst) {
   }
 
   const n = entries.length;
-  // Array header is 4 bytes: [u16 total_byte_length][u16 num_items].
-  // There is NO internal_ptr field (unlike a MAP which has an 8-byte header).
-  // Index entries (2 bytes each) start immediately at byte 4.
-  const dataStart = align4(4 + n * 2);
+  // Array header: [u16 total_byte_length][u16 num_items][u32 internal_ptr = 0]
+  // This matches the billing engine's wire format exactly (confirmed from live PCAP).
+  // The 8-byte header is identical in structure to a MAP header; the difference
+  // is that array index entries are 2 bytes each (not 4), and carry no symbol field.
+  const dataStart = align4(8 + n * 2);
 
   const offsets = [];
   const dataParts = [];
@@ -290,11 +339,11 @@ function encodeArray(lst) {
 
   buf.writeUInt16BE(totalLen, 0);
   buf.writeUInt16BE(n, 2);
-  // No ptr field written — index entries begin at byte 4.
+  buf.writeUInt32BE(0, 4); // internal_ptr = 0
 
   for (let i = 0; i < entries.length; i++) {
     const entry = ((entries[i].tc & 0xF) << 9) | (offsets[i] & 0x1FF);
-    buf.writeUInt16BE(entry, 4 + i * 2);
+    buf.writeUInt16BE(entry, 8 + i * 2);
   }
 
   let writePos = dataStart;
@@ -358,7 +407,7 @@ function decodeMap(data, useLabels = true) {
 }
 
 function decodeArray(data, useLabels = true) {
-  if (data.length < 4) return [];
+  if (data.length < 8) return [];
 
   const firstU16 = data.readUInt16BE(0);
   let numItems, itemsStart, extIndex;
@@ -372,9 +421,7 @@ function decodeArray(data, useLabels = true) {
   } else {
     numItems = data.readUInt16BE(2);
     extIndex = false;
-    // Array header is [u16 total][u16 n] = 4 bytes. No internal_ptr field.
-    // Index entries begin immediately at byte 4.
-    itemsStart = 4;
+    itemsStart = 8;
   }
 
   const itemStride = extIndex ? 6 : 2;
@@ -523,6 +570,8 @@ module.exports = {
   isFriendlyFormat,
   normaliseToRaw,
   convertToFriendly,
+  INT64_FIELDS,
+  STRING_VALUE_FIELDS,
   TC_NULL, TC_INT32, TC_DATE, TC_SYMBOL, TC_FLOAT,
-  TC_STRING, TC_ARRAY, TC_RAW, TC_INT64, TC_MAP
+  TC_STRING, TC_ARRAY, TC_LIST, TC_RAW, TC_INT64, TC_MAP
 };

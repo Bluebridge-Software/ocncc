@@ -879,7 +879,7 @@ function buildSpec(serverUrl, serverDescription) {
                   "TYPE": "WU  ",
                   "HEAD": {
                     "CMID": 1001,
-                    "DATE": "1774035629",
+                    "DATE": "~date:1774035629",
                     "DUP ": 0,
                     "SVID": 1,
                     "USEC": 247024,
@@ -907,7 +907,7 @@ function buildSpec(serverUrl, serverDescription) {
                             "ID  ": 0,
                             "VAL ": 100000,
                             "EXPR": null,
-                            "STDT": "1774035629"
+                            "STDT": "~date:1774035629"
                           },
                         ]
                       }
