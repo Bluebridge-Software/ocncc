@@ -14,7 +14,7 @@ const {
     getSubscriberByCli,
     invalidateProfileTagsCache,
     invalidateSubscriberCache,
-} = require('../database//database-queries');
+} = require('../database/database-queries');
 
 /**
  * Create the database API router.

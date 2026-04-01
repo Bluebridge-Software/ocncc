@@ -10,7 +10,7 @@
 
 const net = require('net');
 const EventEmitter = require('events');
-const codec = require('./escher-codec');
+const codec = require('../codec/escher-codec');
 
 class BeConnection extends EventEmitter {
   /**
@@ -203,10 +203,10 @@ class BeConnection extends EventEmitter {
       // Check for extended map format (0xFFFE)
       if (msgLen === 0xFFFE) {
         if (this._receiveBuffer.length < 8) break; // Need extended header
-        
+
         const extLen = this._receiveBuffer.readUInt32BE(4);
         if (this._receiveBuffer.length < extLen) break; // wait for more data
-        
+
         const msgBuf = this._receiveBuffer.subarray(0, extLen);
         this._receiveBuffer = this._receiveBuffer.subarray(extLen);
         this._processMessage(msgBuf);

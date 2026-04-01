@@ -14,16 +14,16 @@ const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const rateLimit = require('express-rate-limit');
 
-const Config = require('./config');
-const BeClient = require('./be-client');
-const { getRedisClient } = require('./redis-client');
-const StatsTracker = require('./stats-tracker');
+const Config = require('./config/config');
+const BeClient = require('./services/be-client');
+const { getRedisClient } = require('./services/redis-client');
+const StatsTracker = require('./services/stats-tracker');
 const createRouter = require('./routes/api');
 const createDatabaseRouter = require('./routes/database-api');
-const buildSpec = require('./swagger-spec');
-const buildDatabaseSpec = require('./swagger-database-spec');
-const createAuthMiddleware = require('./auth');
-const AlertManager = require('./alert-manager');
+const buildSpec = require('./config/swagger-spec');
+const buildDatabaseSpec = require('./config/swagger-database-spec');
+const createAuthMiddleware = require('./middleware/auth');
+const AlertManager = require('./services/alert-manager');
 
 // Database
 const OracleConnector = require('./database/oracle-connector');
@@ -217,11 +217,21 @@ const server = app.listen(PORT, config.get('host'), async () => {
   // -------------------------------------------------------------------------
   // Post-listen async initialisation
   // -------------------------------------------------------------------------
+  let dbReady = false;
   try {
     // 1. Initialise Oracle connection pool
     await db.initialise();
-    console.log('[DB] Oracle connection pool ready');
 
+    // Pool creation succeeds even when DB is unreachable — probe it
+    await db.testConnection(); // e.g. SELECT 1 FROM DUAL
+
+    dbReady = true;
+    console.log('[DB] Oracle connection pool ready');
+  } catch (err) {
+    console.warn('[DB] Oracle unreachable, continuing without DB:', err.message);
+  }
+
+  try {
     // 2. Load profile tag metadata into the parser immediately
     await loadProfileTags();
     console.log('[ProfileParser] Profiles loaded');

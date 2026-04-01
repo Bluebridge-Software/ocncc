@@ -9,7 +9,7 @@
 
 'use strict';
 
-const getRedisClient = require('./redis-client.js');
+const getRedisClient = require('../services/redis-client.js');
 
 class StatsTracker {
   constructor(config) {

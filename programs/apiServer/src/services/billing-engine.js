@@ -10,7 +10,7 @@
 
 const EventEmitter = require('events');
 const BeConnection = require('./be-connection');
-const codec = require('./escher-codec');
+const codec = require('../codec/escher-codec');
 
 class BillingEngine extends EventEmitter {
   /**

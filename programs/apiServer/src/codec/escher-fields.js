@@ -13,7 +13,7 @@ let SYMBOL_TO_LABEL = {};
 let LABEL_TO_SYMBOL = {};
 
 try {
-  const mappingPath = path.join(__dirname, '..', 'escher_fields.json');
+  const mappingPath = path.join(__dirname, '../data/', 'escher_fields.json');
   SYMBOL_TO_LABEL = JSON.parse(fs.readFileSync(mappingPath, 'utf8'));
 
   // Build reverse mapping

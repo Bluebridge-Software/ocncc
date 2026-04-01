@@ -9,7 +9,7 @@
 'use strict';
 
 const BillingEngine = require('./billing-engine');
-const codec = require('./escher-codec');
+const codec = require('../codec/escher-codec');
 
 class BeClient {
   /**

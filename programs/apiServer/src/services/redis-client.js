@@ -8,7 +8,7 @@
 
 
 const { createClient } = require('redis');
-const Config = require('./config');
+const Config = require('../config/config');
 
 let redis = null;
 
