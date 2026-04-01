@@ -18,7 +18,7 @@ const express = require('express');
  * @param {StatsTracker} [statsTracker] - Optional statistics tracker
  * @returns {express.Router}
  */
-function createRouter(beClient, statsTracker) {
+function createRouter(beClient, statsTracker, getDbReady = () => false) {
   const router = express.Router();
 
   // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ function createRouter(beClient, statsTracker) {
         return res.status(400).json({ error: 'Request body must be a JSON object' });
       }
 
-      const codec = require('../escher-codec');
+      const codec = require('../codec/escher-codec');
       const isFriendly = codec.isFriendlyFormat(message);
 
       const options = {
@@ -113,7 +113,7 @@ function createRouter(beClient, statsTracker) {
         }
 
         // Auto-fill message type and action if not provided
-        const codec = require('../escher-codec');
+        const codec = require('../codec/escher-codec');
         const isFriendly = codec.isFriendlyFormat(message);
 
         if (isFriendly) {
@@ -219,6 +219,7 @@ function createRouter(beClient, statsTracker) {
     res.status(anyAvailable || Object.keys(engines).length === 0 ? 200 : 503).json({
       status: anyAvailable || Object.keys(engines).length === 0 ? 'ok' : 'degraded',
       engines: Object.keys(engines).length,
+      db: getDbReady() ? 'connected' : 'unavailable',
       timestamp: new Date().toISOString()
     });
   });
