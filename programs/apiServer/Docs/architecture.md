@@ -27,6 +27,7 @@ graph TD
         Alert --> SNMP((SNMP Trap Agent))
     end
     
+    Router --> OC_DB[(OCNCC Database)]
     P --> OC_P((OCNCC Primary BE))
     S --> OC_S((OCNCC Secondary BE))
 ```

@@ -42,8 +42,16 @@ from pathlib import Path
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ "
 
 def pad_sym(s):
-    """Pad a symbol key to exactly 4 chars."""
-    return (s + "    ")[:4]
+    """Pad a symbol key to exactly 4 chars, or trim trailing spaces to fit."""
+    if len(s) <= 4:
+        return (s + "    ")[:4]
+    trimmed = s.rstrip()
+    if len(trimmed) <= 4:
+        return (trimmed + "    ")[:4]
+    raise ValueError(
+        f"Escher symbol {s!r} is {len(s)} chars but the maximum is 4. "
+        "Symbols must be 1–4 uppercase letters (A-Z or space)."
+    )
 
 def is_symbol_value(s):
     """True if string looks like a bare 4-char ESCHER symbol value."""
@@ -78,10 +86,54 @@ TC_DATE   = 2
 TC_SYMBOL = 3
 TC_FLOAT  = 4
 TC_STRING = 5
-TC_ARRAY  = 6
+TC_ARRAY  = 6   # decoded only — the billing engine sends TC_LIST for all arrays
+TC_LIST   = 11  # used by the billing engine for ALL array values (ABAL, BKTS, CDR, BALS …)
 TC_RAW    = 8
 TC_INT64  = 9
 TC_MAP    = 12
+
+# ---------------------------------------------------------------------------
+# Fields that the billing engine always encodes as INT64, even when the value
+# fits in INT32.  Derived from live PCAP analysis: wallet IDs, bucket IDs, and
+# monetary/unit amounts are INT64; small enum-like values (BTYP, BUNT, ACTY …)
+# are INT32.
+# ---------------------------------------------------------------------------
+INT64_FIELDS = {
+    'CMID',  # request serial number
+    'WALT',  # wallet ID
+    'AREF',  # account reference
+    'ID  ',  # bucket ID (inside BKTS)
+    'VAL ',  # monetary value (inside BKTS and CDR)
+    'UVAL',  # unit value
+    'STOT',  # system total
+    'UTOT',  # unit total
+    'BDLT',  # balance delta
+    'CNFM',  # confirmed amount
+    'DELT',  # delta amount
+    'AMNT',  # amount
+    'MINA',  # minimum amount
+    'MCHG',  # max charge
+}
+
+# ---------------------------------------------------------------------------
+# Fields whose VALUES must always be encoded as TC_STRING, even if the value
+# happens to be exactly 4 uppercase characters that would normally satisfy
+# is_symbol_value().  The billing engine's C++ struct for these fields declares
+# the value as std::string, not Symbol — sending TC_SYMBOL causes a TYFD
+# ("Bad type for field") exception.
+#
+# Example: TAG ="USER" inside a CDR map.  "USER" is 4 uppercase chars so
+# is_symbol_value() returns true, but the server rejects TC_SYMBOL for TAG .
+# ---------------------------------------------------------------------------
+STRING_VALUE_FIELDS = {
+    'TAG ',  # CDR tag name — always free-form text (USER, TERMINAL, MSISDN …)
+    'NAME',  # client/entity name
+    'WHAT',  # error description text
+    'STRV',  # string value (explicit string field by protocol definition)
+    'SNUS',  # serial number string
+    'SCNM',  # scenario name
+    'VNME',  # voucher type name
+}
 
 # ---------------------------------------------------------------------------
 # Value encoders
@@ -100,31 +152,38 @@ def encode_float64_wire(v):
     """Byte-reverse the double (Linux htonf convention)."""
     return bytes(reversed(struct.pack('>d', v)))
 
-def encode_value(v):
+def encode_value(v, force_int64=False, force_string=False):
     """Return (typecode, encoded_bytes) for a Python value."""
     if v is None:
         return TC_NULL, b''
     if isinstance(v, str) and v.startswith('~date:'):
         ts = int(v[6:])
         return TC_DATE, struct.pack('>I', ts)
+    # Accept the rich date dict produced by the decoder: {_type:'date', unix:N, ...}
+    if isinstance(v, dict) and v.get('_type') == 'date' and 'unix' in v:
+        return TC_DATE, struct.pack('>I', int(v['unix']))
     if isinstance(v, bool):
         # JSON booleans: treat true as NULL (presence flag), false omit
         return TC_NULL, b''
     if isinstance(v, int):
-        if -2147483648 <= v <= 2147483647:
-            return TC_INT32, struct.pack('>i', v)
-        else:
+        if force_int64 or not (-2147483648 <= v <= 2147483647):
             return TC_INT64, struct.pack('>q', v)
+        return TC_INT32, struct.pack('>i', v)
     if isinstance(v, float):
         return TC_FLOAT, encode_float64_wire(v)
     if isinstance(v, str):
-        if is_symbol_value(v):
+        # force_string: fields declared as std::string in the billing engine must always
+        # use TC_STRING even if the value is 4 uppercase chars (e.g. TAG ="USER").
+        # Without this, is_symbol_value("USER") returns true and we'd send TC_SYMBOL,
+        # which causes a TYFD ("Bad type for field") exception from the server.
+        if not force_string and is_symbol_value(v):
             return TC_SYMBOL, struct.pack('>I', encode_symbol_int(v))
         return TC_STRING, encode_string(v)
     if isinstance(v, dict):
         return TC_MAP, encode_map(v)
     if isinstance(v, list):
-        return TC_ARRAY, encode_array(v)
+        # The billing engine always uses TC_LIST (11) for array values, not TC_ARRAY (6).
+        return TC_LIST, encode_array(v)
     raise ValueError(f"Cannot encode {type(v).__name__}: {v!r}")
 
 # ---------------------------------------------------------------------------
@@ -138,8 +197,22 @@ def encode_map(d):
         # Convert friendly label back to symbol if present
         sym = LABEL_TO_SYMBOL.get(raw_key, raw_key)
         key = pad_sym(sym)
-        tc, data = encode_value(val)
+        # Some fields must always be encoded as INT64 regardless of value magnitude,
+        # because the billing engine's C++ structs declare them as 64-bit integers.
+        force_int64 = key in INT64_FIELDS
+        # Some fields must always be encoded as TC_STRING even if the value is exactly
+        # 4 uppercase characters (which would normally match is_symbol_value).  The
+        # billing engine declares these fields as std::string in C++; sending TC_SYMBOL
+        # causes a TYFD ("Bad type for field") exception.
+        force_string = key in STRING_VALUE_FIELDS
+        tc, data = encode_value(val, force_int64, force_string)
         entries.append((key, tc, data))
+
+    # Sort map keys by their 32-bit symbol representation.
+    # The Escher server uses binary search on the index, so keys MUST be
+    # sorted in ascending symbol-integer order.  The Escher alphabet gives
+    # ' ' (space) a higher ordinal value than 'Z', so plain ASCII order is wrong.
+    entries.sort(key=lambda e: encode_symbol_int(e[0]))
 
     n = len(entries)
     # Standard map: 8-byte header + n*4 index + data

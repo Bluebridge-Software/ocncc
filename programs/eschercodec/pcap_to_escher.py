@@ -249,7 +249,7 @@ def decode_value(data, typecode, abs_off, use_labels=True):
         if len(vd) < 4:
             return None
         ts = struct.unpack('>I', vd[:4])[0]
-        return ts
+        return format_date_field(ts)
 
     elif typecode == TC_SYMBOL:
         if len(vd) < 4:

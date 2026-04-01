@@ -21,10 +21,13 @@ class BeClient {
     this._cmidCounter = 1;
 
     // Initialise billing engines from config
+    /*
+    console.log('[BeClient] Using config file for billing engine initialisation');
     const engineConfigs = config.getBillingEngines();
     for (const engineConfig of engineConfigs) {
       this.addBillingEngine(engineConfig);
     }
+    */
   }
 
   /**

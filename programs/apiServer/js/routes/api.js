@@ -1,6 +1,7 @@
 /**
  * OCNCC API Server.
  * Handles API requests and forwards them to the billing engine.
+ * Also handles USMS querying
  *
  * © COPYRIGHT: Blue Bridge Software Ltd - 2026
  * Author: Tony Craven

@@ -40,7 +40,7 @@ const DEFAULT_CONFIG = {
 
   // Redis Statistics Cache
   redisEnabled: false,                 // Optionally enable Redis for API statistics
-  redisUrl: 'redis://localhost:6379',  // Redis connection details
+  redisUrl: 'redis://swisspi:6379',   // Redis connection details
 
   // Alerting - Syslog
   syslogEnabled: false,
@@ -55,7 +55,8 @@ const DEFAULT_CONFIG = {
 
   // Billing engines configuration
   // Each entry: { id, primary: { ip, port }, secondary: { ip, port } }
-  billingEngines: []
+  billingEngines: [],
+  useDatabaseForBillingEngines: true,
 };
 
 class Config {

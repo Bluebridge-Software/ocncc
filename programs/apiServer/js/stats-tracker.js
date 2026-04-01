@@ -9,25 +9,12 @@
 
 'use strict';
 
-const Redis = require('ioredis');
+const getRedisClient = require('./redis-client.js');
 
 class StatsTracker {
   constructor(config) {
     this.periodMs = (config.get('statsPeriodMinutes') || 5) * 60 * 1000;
     this.retentionMs = (config.get('statsRetentionDays') || 3) * 24 * 60 * 60 * 1000;
-
-    this.redisEnabled = config.get('redisEnabled') || false;
-    this.redis = null;
-
-    if (this.redisEnabled) {
-      const url = config.get('redisUrl') || 'redis://localhost:6379';
-      this.redis = new Redis(url, {
-        retryStrategy: (times) => Math.min(times * 50, 2000)
-      });
-      this.redis.on('error', (err) => {
-        console.error('[StatsTracker] Redis connection error:', err.message);
-      });
-    }
 
     // Local state fallback (and local snapshot cache)
     this.buckets = new Map();
@@ -72,7 +59,8 @@ class StatsTracker {
 
     // Write to Redis if enabled
     if (this.redisEnabled && this.redis.status === 'ready') {
-      const p = this.redis.pipeline();
+      const redis = getRedisClient(); // will return the same singleton
+      const p = redis.pipeline();
 
       // Register this bucket time into a sorted set to query later
       p.zadd('stats:buckets', bucketTime, bucketTime);

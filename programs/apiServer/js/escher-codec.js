@@ -461,7 +461,8 @@ function decodeValue(data, typecode, absOff, useLabels = true) {
 
     case TC_DATE:
       if (vd.length < 4) return null;
-      return formatDateField(vd.readUInt32BE(0));
+      return vd.readUInt32BE(0);
+    //return formatDateField(vd.readUInt32BE(0));
 
     case TC_SYMBOL:
       if (vd.length < 4) return null;

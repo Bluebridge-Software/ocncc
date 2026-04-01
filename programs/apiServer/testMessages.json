@@ -1,0 +1,1059 @@
+[
+  {
+    "_comment": "HTBT - Heartbeat",
+    "TYPE": "HTBT",
+    "HEAD": {},
+    "BODY": {}
+  },
+  {
+    "_comment": "WI - Wallet Info Request",
+    "ACTN": "REQ ",
+    "TYPE": "WI  ",
+    "HEAD": {
+      "CMID": 1001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "WALR": "ACC001:1",
+      "BTYP": 2,
+      "BUNT": 1,
+      "UCUR": 840,
+      "SPID": 101,
+      "LOCK": 500,
+      "SDNF": null,
+      "SPLG": null,
+      "SPCP": null,
+      "UDWS": null,
+      "ACTY": 5,
+      "AREF": 999,
+      "WTYP": 1,
+      "CLI ": "447700900123"
+    }
+  },
+  {
+    "_comment": "WI - Wallet Info Ack",
+    "ACTN": "ACK ",
+    "TYPE": "WI  ",
+    "HEAD": {
+      "CMID": 1001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "STAT": "ACTV",
+      "EXPR": "~date:1776627629",
+      "MAXC": 3,
+      "ACTV": "~date:1766259629",
+      "LUSE": "~date:1774032029",
+      "SCUR": 840,
+      "UCUR": 840,
+      "BALS": [
+        {
+          "BTYP": 1,
+          "LIMT": "DEBT",
+          "STOT": 50000,
+          "BUNT": 1,
+          "BKTS": [
+            {
+              "ID  ": 1,
+              "VAL ": 50000,
+              "EXPR": "~date:1776627629"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "IR - Initial Reservation Request",
+    "ACTN": "REQ ",
+    "TYPE": "IR  ",
+    "HEAD": {
+      "CMID": 2001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "AREF": 999,
+      "ACTY": 5,
+      "CLI ": "447700900123",
+      "DN  ": "447911234567",
+      "CDAT": "~date:1774035629",
+      "TZ  ": "GMT",
+      "ERSL": 120,
+      "BCOR": 3,
+      "TPO ": 7,
+      "RPO ": 300,
+      "PREC": "SECS",
+      "CSC ": "STD01",
+      "SUBN": "447700900123:1"
+    }
+  },
+  {
+    "_comment": "IR - Initial Reservation Ack",
+    "ACTN": "ACK ",
+    "TYPE": "IR  ",
+    "HEAD": {
+      "CMID": 2001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "NUM ": 120,
+      "TOT ": 14400,
+      "LOWT": 30,
+      "FCD ": "HON ",
+      "TCOD": "PEAK",
+      "LOWA": 60
+    }
+  },
+  {
+    "_comment": "IR - Initial Reservation NAck (Insufficient Funds)",
+    "ACTN": "NACK",
+    "TYPE": "IR  ",
+    "HEAD": {
+      "CMID": 2002,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "CODE": "INSF",
+      "WHAT": "Insufficient funds in wallet 12345"
+    }
+  },
+  {
+    "_comment": "SR - Subsequent Reservation Request",
+    "ACTN": "REQ ",
+    "TYPE": "SR  ",
+    "HEAD": {
+      "CMID": 2003,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "TUC ": 60,
+      "ERSL": 120,
+      "NUM ": 30
+    }
+  },
+  {
+    "_comment": "CR - Commit Reservation Request",
+    "ACTN": "REQ ",
+    "TYPE": "CR  ",
+    "HEAD": {
+      "CMID": 2004,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "RESN": "HANG",
+      "NUM ": 95,
+      "CDAT": "~date:1774035629"
+    }
+  },
+  {
+    "_comment": "RR - Revoke Reservation Request",
+    "ACTN": "REQ ",
+    "TYPE": "RR  ",
+    "HEAD": {
+      "CMID": 2005,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "RESN": "UNKN"
+    }
+  },
+  {
+    "_comment": "ATC - Apply Tariffed Charge Request",
+    "ACTN": "REQ ",
+    "TYPE": "ATC ",
+    "HEAD": {
+      "CMID": 3001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "AREF": 999,
+      "ACTY": 5,
+      "CLI ": "447700900123",
+      "DN  ": "447911234567",
+      "CDAT": "~date:1774035629",
+      "TZ  ": "GMT",
+      "NUM ": 180,
+      "RESN": "HANG",
+      "BTOR": 1,
+      "BCOR": 3,
+      "TPO ": 7,
+      "PREC": "SECS",
+      "CSC ": "STD01",
+      "SUBN": "447700900123:1"
+    }
+  },
+  {
+    "_comment": "NE - Named Event Request",
+    "ACTN": "REQ ",
+    "TYPE": "NE  ",
+    "HEAD": {
+      "CMID": 4001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "AREF": 999,
+      "ACTY": 5,
+      "CDAT": "~date:1774035629",
+      "TZ  ": "GMT",
+      "EVTS": [
+        {
+          "CLSS": "Data",
+          "NAME": "GPRS_Session",
+          "MIN ": 1,
+          "MAX ": 100,
+          "DISC": 0
+        }
+      ],
+      "NSFP": 0,
+      "WTYP": 1,
+      "BTOR": 2,
+      "BCOR": 0
+    }
+  },
+  {
+    "_comment": "INER - Initial Named Event Reservation",
+    "ACTN": "REQ ",
+    "TYPE": "INER",
+    "HEAD": {
+      "CMID": 4010,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "AREF": 999,
+      "ACTY": 5,
+      "CDAT": "~date:1774035629",
+      "TZ  ": "GMT",
+      "EVTS": [
+        {
+          "CLSS": "Data",
+          "NAME": "GPRS_Session",
+          "MIN ": 1,
+          "MAX ": 500,
+          "DISC": 0
+        }
+      ],
+      "ERSL": 3600,
+      "WTYP": 1
+    }
+  },
+  {
+    "_comment": "SNER - Subsequent Named Event Reservation",
+    "ACTN": "REQ ",
+    "TYPE": "SNER",
+    "HEAD": {
+      "CMID": 4011,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "EVTS": [
+        {
+          "MIN ": 1,
+          "MAX ": 500
+        }
+      ],
+      "ERSL": 3600
+    }
+  },
+  {
+    "_comment": "CNER - Confirm Named Event Reservation",
+    "ACTN": "REQ ",
+    "TYPE": "CNER",
+    "HEAD": {
+      "CMID": 4012,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "EVTS": [
+        {
+          "NUM ": 320,
+          "DISC": 0
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "RNER - Revoke Named Event Reservation",
+    "ACTN": "REQ ",
+    "TYPE": "RNER",
+    "HEAD": {
+      "CMID": 4013,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "EVTS": [
+        {
+          "NUM ": 0,
+          "DISC": 0
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "IARR - Initial Amount Reservation Request",
+    "ACTN": "REQ ",
+    "TYPE": "IARR",
+    "HEAD": {
+      "CMID": 5001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "ACTY": 5,
+      "AREF": 999,
+      "LIFE": 3600,
+      "WTYP": 1,
+      "BTYP": 1,
+      "AMNT": 10000,
+      "MINA": 1000,
+      "BALC": 2
+    }
+  },
+  {
+    "_comment": "IARR - Initial Amount Reservation Ack",
+    "ACTN": "ACK ",
+    "TYPE": "IARR",
+    "HEAD": {
+      "CMID": 5001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "RSRV": 10000,
+      "TMLF": 3600
+    }
+  },
+  {
+    "_comment": "SARR - Subsequent Amount Reservation",
+    "ACTN": "REQ ",
+    "TYPE": "SARR",
+    "HEAD": {
+      "CMID": 5002,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "LIFE": 3600,
+      "AMNT": 10000,
+      "MINA": 1000
+    }
+  },
+  {
+    "_comment": "CARR - Confirm Amount Reservation",
+    "ACTN": "REQ ",
+    "TYPE": "CARR",
+    "HEAD": {
+      "CMID": 5003,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "RESN": "HANG",
+      "CNFM": 8500
+    }
+  },
+  {
+    "_comment": "RARR - Revoke Amount Reservation",
+    "ACTN": "REQ ",
+    "TYPE": "RARR",
+    "HEAD": {
+      "CMID": 5004,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "RESN": "UNKN"
+    }
+  },
+  {
+    "_comment": "DA - Direct Amount Request",
+    "ACTN": "REQ ",
+    "TYPE": "DA  ",
+    "HEAD": {
+      "CMID": 6001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "ACTY": 5,
+      "AREF": 999,
+      "DDAM": -500,
+      "WTYP": 1,
+      "BTYP": 1,
+      "BALC": 2,
+      "BVMO": 0,
+      "WVMO": 0
+    }
+  },
+  {
+    "_comment": "USR - Unit Second Rate Request",
+    "ACTN": "REQ ",
+    "TYPE": "USR ",
+    "HEAD": {
+      "CMID": 7001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "ACTY": 5,
+      "CLI ": "447700900123",
+      "DN  ": "447911234567",
+      "CDAT": "~date:1774035629",
+      "TZ  ": "GMT",
+      "AREF": 999,
+      "PREC": "SECS",
+      "CSC ": "STD01"
+    }
+  },
+  {
+    "_comment": "NER - Named Event Rate Request",
+    "ACTN": "REQ ",
+    "TYPE": "NER ",
+    "HEAD": {
+      "CMID": 7002,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "ACTY": 5,
+      "CLSS": "Data",
+      "NAME": "GPRS_Session",
+      "CDAT": "~date:1774035629",
+      "TZ  ": "GMT"
+    }
+  },
+  {
+    "_comment": "WC - Wallet Create Request",
+    "ACTN": "REQ ",
+    "TYPE": "WC  ",
+    "HEAD": {
+      "CMID": 8001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 0,
+      "CLI ": "447700900123",
+      "WTYP": 1,
+      "ACTY": 5,
+      "STAT": "ACTV",
+      "MAXC": 3,
+      "EXPR": "~date:1805571629",
+      "ACTV": "~date:1774035629",
+      "SPID": 101,
+      "ABAL": [
+        {
+          "BTYP": 1,
+          "LIMT": "DEBT",
+          "BKTS": [
+            {
+              "ID  ": 0,
+              "VAL ": 100000,
+              "EXPR": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "WU - Wallet Update Request",
+    "ACTN": "REQ ",
+    "TYPE": "WU  ",
+    "HEAD": {
+      "CMID": 8002,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "AREF": 999,
+      "ACTY": 5,
+      "STAT": "ACTV",
+      "MAXC": 5,
+      "SPLG": null,
+      "ABID": 0,
+      "NACT": 6,
+      "ABAL": [
+        {
+          "BTYP": 1,
+          "BKTS": [
+            {
+              "ID  ": 1,
+              "VAL ": 5000
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "WD - Wallet Delete Request",
+    "ACTN": "REQ ",
+    "TYPE": "WD  ",
+    "HEAD": {
+      "CMID": 8003,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "CLI ": "447700900123",
+      "WTYP": 1,
+      "ACTY": 5,
+      "DLKW": null,
+      "DLRM": null
+    }
+  },
+  {
+    "_comment": "WGR - Wallet General Recharge Request",
+    "ACTN": "REQ ",
+    "TYPE": "WGR ",
+    "HEAD": {
+      "CMID": 9001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "AREF": 999,
+      "ACTY": 5,
+      "SPID": 101,
+      "UDWS": null,
+      "RWI ": null,
+      "AEXP": "~date:1805571629",
+      "APOL": "AXPB",
+      "BPOL": "BXPB",
+      "AEXT": 720,
+      "BEXT": 720,
+      "WTYP": 1,
+      "RBAA": [
+        {
+          "BTYP": 1,
+          "DBKP": "AXPB",
+          "RBIA": [
+            {
+              "BKID": -1,
+              "VAL ": 10000,
+              "BEXT": 720,
+              "BPOL": "BXPB",
+              "BNEW": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "VI - Voucher Info Request",
+    "ACTN": "REQ ",
+    "TYPE": "VI  ",
+    "HEAD": {
+      "CMID": 10001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "VNUM": "1234567890",
+      "SPID": 101
+    }
+  },
+  {
+    "_comment": "VR - Voucher Redeem Request",
+    "ACTN": "REQ ",
+    "TYPE": "VR  ",
+    "HEAD": {
+      "CMID": 10002,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "VNUM": "1234567890",
+      "SPID": 101,
+      "RWLT": 12345,
+      "ACTY": 5,
+      "RARF": "447700900123",
+      "SCEN": 0
+    }
+  },
+  {
+    "_comment": "VR - Voucher Redeem NAck (Unknown Voucher)",
+    "ACTN": "NACK",
+    "TYPE": "VR  ",
+    "HEAD": {
+      "CMID": 10003,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "CODE": "NVOU",
+      "WHAT": "Voucher 9999999999 not found"
+    }
+  },
+  {
+    "_comment": "CVR - Commit Voucher Redeem",
+    "ACTN": "REQ ",
+    "TYPE": "CVR ",
+    "HEAD": {
+      "CMID": 10004,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "VNUM": "1234567890",
+      "SCEN": 0
+    }
+  },
+  {
+    "_comment": "RVR - Revoke Voucher Redeem",
+    "ACTN": "REQ ",
+    "TYPE": "RVR ",
+    "HEAD": {
+      "CMID": 10005,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "VNUM": "1234567890"
+    }
+  },
+  {
+    "_comment": "VRW - Voucher Redeem Wallet Request",
+    "ACTN": "REQ ",
+    "TYPE": "VRW ",
+    "HEAD": {
+      "CMID": 10010,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "VNUM": "1234567890",
+      "SPID": 101,
+      "WTSP": 101,
+      "RWLT": 12345,
+      "AREF": 999,
+      "ACTY": 5,
+      "SVID": 1,
+      "WALR": "447700900123:1",
+      "SUBN": "447700900123",
+      "RARF": "447700900123",
+      "RWAL": 0,
+      "UDWS": null,
+      "SCEN": 0
+    }
+  },
+  {
+    "_comment": "VU - Voucher Update Request",
+    "ACTN": "REQ ",
+    "TYPE": "VU  ",
+    "HEAD": {
+      "CMID": 10020,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "VNUM": "1234567890",
+      "STAT": "RDMD",
+      "RWLT": 12345,
+      "DATE": "~date:1774035629"
+    }
+  },
+  {
+    "_comment": "VTR - Voucher Type Recharge Request",
+    "ACTN": "REQ ",
+    "TYPE": "VTR ",
+    "HEAD": {
+      "CMID": 10030,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "VNME": "STANDARD_RECHARGE_10",
+      "SPID": 101,
+      "WALT": 12345,
+      "AREF": 999,
+      "ACTY": 5,
+      "SVID": 1,
+      "WALR": "447700900123:1",
+      "SUBN": "447700900123",
+      "RVI ": null,
+      "RWI ": null,
+      "UDWS": null
+    }
+  },
+  {
+    "_comment": "VTRC - Voucher Type Recharge Confirm",
+    "ACTN": "REQ ",
+    "TYPE": "VTRC",
+    "HEAD": {
+      "CMID": 10031,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "AREF": 999,
+      "ACTY": 5
+    }
+  },
+  {
+    "_comment": "BPIN - Bad PIN Request",
+    "ACTN": "REQ ",
+    "TYPE": "BPIN",
+    "HEAD": {
+      "CMID": 11001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "AREF": 999,
+      "ACTY": 5
+    }
+  },
+  {
+    "_comment": "BPIN - Bad PIN Ack",
+    "ACTN": "ACK ",
+    "TYPE": "BPIN",
+    "HEAD": {
+      "CMID": 11001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "STAT": "ACTV",
+      "PINC": 1
+    }
+  },
+  {
+    "_comment": "LDMF - Reload MFile Request",
+    "ACTN": "REQ ",
+    "TYPE": "LDMF",
+    "HEAD": {
+      "CMID": 12001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "MFTY": "MAIN"
+    }
+  },
+  {
+    "_comment": "WRI - Wallet Reservations Info Request",
+    "ACTN": "REQ ",
+    "TYPE": "WRI ",
+    "HEAD": {
+      "CMID": 13001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345
+    }
+  },
+  {
+    "_comment": "WRE - Wallet Reservation End Request",
+    "ACTN": "REQ ",
+    "TYPE": "WRE ",
+    "HEAD": {
+      "CMID": 13002,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "SCPI": 7,
+      "CALI": 42,
+      "RESO": 1
+    }
+  },
+  {
+    "_comment": "MGW - Merge Wallets Request",
+    "ACTN": "REQ ",
+    "TYPE": "MGW ",
+    "HEAD": {
+      "CMID": 14001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "SPID": 101,
+      "TSUB": 200,
+      "TWID": 12345,
+      "TDID": 1,
+      "TATI": 5,
+      "SSUB": 300,
+      "SWID": 67890,
+      "SDID": 1,
+      "SCLI": "447700900456",
+      "SCID": 840,
+      "SATI": 5,
+      "SWTI": 1
+    }
+  },
+  {
+    "_comment": "MGW - Merge Wallets NAck",
+    "ACTN": "NACK",
+    "TYPE": "MGW ",
+    "HEAD": {
+      "CMID": 14002,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "CODE": "NSSW",
+      "WHAT": "Source wallet 67890 not found"
+    }
+  },
+  {
+    "_comment": "WSI - Wallet State Information Request",
+    "ACTN": "REQ ",
+    "TYPE": "WSI ",
+    "HEAD": {
+      "CMID": 15001,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345
+    }
+  },
+  {
+    "_comment": "Exception - Processing Exception",
+    "ACTN": "EXCP",
+    "TYPE": "PROC",
+    "HEAD": {
+      "CMID": 9999,
+      "DATE": "~date:1774035629",
+      "DUP ": 0,
+      "SVID": 1,
+      "USEC": 247024,
+      "VER ": 100
+    },
+    "BODY": {
+      "CODE": "PLUG",
+      "WHAT": "Processing Exception: Plugin: CCS RuntimeError: Could not find system currency in the MFILE"
+    }
+  },
+  {
+    "_comment": "VWARS Query Wallet Request (internal beServer->beVWARS)",
+    "ACTN": "REQ ",
+    "TYPE": "WALT",
+    "TRAN": "QRY ",
+    "CLAS": "WALT",
+    "HEAD": {
+      "CLID": 7,
+      "CMID": 42,
+      "DATE": "~date:1774035629",
+      "USEC": 12345,
+      "DUP ": 0,
+      "VER ": 100
+    },
+    "BODY": {
+      "WALT": 12345,
+      "BTYP": 1,
+      "LOCK": 500
+    }
+  },
+  {
+    "_comment": "VWARS Command - Request All Contexts",
+    "ACTN": "CMD ",
+    "CMDT": "RALL",
+    "HEAD": {
+      "CLID": 7,
+      "CMID": 1,
+      "VER ": 100
+    },
+    "BODY": {}
+  },
+  {
+    "_comment": "VWARS Exception - Bad Data",
+    "ACTN": "EXCP",
+    "TYPE": "DATA",
+    "HEAD": {
+      "CLID": 7,
+      "CMID": 42,
+      "VER ": 100
+    },
+    "BODY": {
+      "CODE": "WALT",
+      "WHAT": "Wallet 99999 not found",
+      "STRV": "99999"
+    }
+  },
+  {
+    "_comment": "VWARS Exception - Message Sequence Error",
+    "ACTN": "EXCP",
+    "TYPE": "MSEQ",
+    "HEAD": {
+      "CLID": 7,
+      "CMID": 42,
+      "VER ": 100
+    },
+    "BODY": {
+      "CODE": "NWRS",
+      "WHAT": "No wallet reservation for commit"
+    }
+  }
+]
