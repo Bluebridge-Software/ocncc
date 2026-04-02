@@ -38,19 +38,37 @@ const config = new Config();
 const PORT = config.get('port');
 
 // ---------------------------------------------------------------------------
+// Feature flags (from .env)
+//
+//   DATABASE_ENABLED=false  — disables all Oracle connection attempts entirely.
+//                             /db routes return 503, Swagger DB paths never merged.
+// ---------------------------------------------------------------------------
+const DB_ENABLED = config.get('databaseEnabled') !== false &&
+  String(config.get('databaseEnabled')).toLowerCase() !== 'false';
+
+// ---------------------------------------------------------------------------
 // Initialise core services
 // ---------------------------------------------------------------------------
-const db = new OracleConnector();
+const db = DB_ENABLED ? new OracleConnector() : null;
 const beClient = new BeClient(config);
 const statsTracker = new StatsTracker(config);
 const alertManager = new AlertManager(config);
 
 // ---------------------------------------------------------------------------
-// DB state — module-level so routes and retry loop can share it
+// State — module-level so routes, guards, and timers can share it
 // ---------------------------------------------------------------------------
+
+// DB readiness
 let dbReady = false;
 let dbRetryTimer = null;
 let profileRefreshTimer = null;
+
+// Billing engine readiness — true once at least one engine connection is active
+let enginesReady = false;
+let engineConfigRefreshTimer = null;
+
+// Stable hash of the last known engine config from DB, used to diff on refresh
+let lastEngineConfigHash = null;
 
 // ---------------------------------------------------------------------------
 // Initialise Redis (shared across stats + DB cache)
@@ -68,11 +86,11 @@ if (config.get('redisEnabled')) {
 // ---------------------------------------------------------------------------
 // Initialise profile parser (singleton shared across the whole process)
 // ---------------------------------------------------------------------------
-const profileParser = new BbsProfileBlock({ debug: false });
+const profileParser = DB_ENABLED ? new BbsProfileBlock({ debug: false }) : null;
 
 /**
  * Load (or reload) profile tag metadata into profileParser.
- * Called once at startup and then on a configurable interval.
+ * Only called when DB_ENABLED is true and dbReady is true.
  *
  * @param {object}  [opts]
  * @param {boolean} [opts.forceRefresh=false]  Bypass Redis cache
@@ -86,13 +104,11 @@ async function loadProfileTags(opts = {}) {
       return;
     }
 
-    // Inject directly into the parser (same shape as loadTagMeta expects)
     profileParser._tagMeta = new Map(payload.data.map(t => [t.tagId.toUpperCase(), t]));
     profileParser._tagTree = payload.tree;
 
     console.log(`[ProfileParser] Loaded ${payload.count} tag definitions`);
   } catch (err) {
-    // Non-fatal — the server still starts, profiles decode without friendly names
     console.error('[ProfileParser] Failed to load tag metadata:', err.message);
   }
 }
@@ -118,10 +134,11 @@ app.use((req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// Swagger — billing engine spec only at startup; DB paths merged once DB is up
+// Swagger — billing engine spec only at startup.
+// DB paths are merged in once the DB is reachable (when DB_ENABLED is true).
 // ---------------------------------------------------------------------------
 const mainSpec = buildSpec(config.get('serverUrl'), config.get('serverDescription'));
-const dbSpec = buildDatabaseSpec();
+const dbSpec = DB_ENABLED ? buildDatabaseSpec() : null;
 
 const swaggerOptions = {
   customCss: `
@@ -160,13 +177,13 @@ const swaggerOptions = {
 };
 
 /**
- * Merge DB paths/schemas into the live Swagger spec so they appear in the UI
- * as soon as the database becomes reachable. Safe to call once — guards against
- * double-merging if the retry loop ever fires more than once.
+ * Merge DB paths/schemas into the live Swagger spec once.
+ * swagger-ui-express holds a reference to mainSpec so changes appear on next
+ * browser reload without restarting the server.
  */
 let dbSpecMerged = false;
 function mergeDbSpec() {
-  if (dbSpecMerged) return;
+  if (!DB_ENABLED || !dbSpec || dbSpecMerged) return;
   dbSpecMerged = true;
 
   mainSpec.tags = [...(mainSpec.tags || []), ...dbSpec.tags];
@@ -180,7 +197,7 @@ function mergeDbSpec() {
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(mainSpec, swaggerOptions));
 
 // ---------------------------------------------------------------------------
-// Rate limiting & Auth (applied to both /api and /db routes)
+// Rate limiting & Auth
 // ---------------------------------------------------------------------------
 const apiLimiter = rateLimit({
   windowMs: 1000,
@@ -197,23 +214,36 @@ const authMiddleware = createAuthMiddleware(config, statsTracker, alertManager);
 // ---------------------------------------------------------------------------
 
 // Billing engine API  →  /api/*
-app.use('/api', apiLimiter, authMiddleware, createRouter(beClient, statsTracker, () => dbReady));
+// createRouter receives a getter so the health endpoint reflects live state.
+// All non-health endpoints are gated behind an enginesReady check.
+const apiRouter = createRouter(beClient, statsTracker, () => dbReady);
 
-// Database / subscriber API  →  /db/*
-// Guard middleware returns 503 until dbReady is true, then passes through to
-// the real router. The router itself is created once and reused — only the
-// guard changes behaviour.
-const dbRouter = createDatabaseRouter(db, profileParser, redis, createDbGuard(() => dbReady));
+app.use('/api', apiLimiter, authMiddleware, (req, res, next) => {
+  // Always let health checks through — this is how callers detect readiness
+  if (req.path === '/health') return next();
 
-app.use('/db', apiLimiter, authMiddleware, (req, res, next) => {
-  if (!dbReady) {
+  if (!enginesReady) {
     return res.status(503).json({
-      error: 'Database unavailable',
-      message: 'The database connection is not yet established. Please try again shortly.',
+      error: 'No billing engines available',
+      message: 'No billing engine connections are currently active. Check /api/health for status.',
     });
   }
   next();
-}, dbRouter);
+}, apiRouter);
+
+// Database / subscriber API  →  /db/*
+// createDbGuard returns 503 when dbReady is false or DB_ENABLED is false.
+const dbRouter = DB_ENABLED ? createDatabaseRouter(db, profileParser, redis) : null;
+
+app.use('/db', apiLimiter, authMiddleware, createDbGuard(() => dbReady), (req, res, next) => {
+  if (!dbRouter) {
+    return res.status(503).json({
+      error: 'Database is disabled',
+      message: 'DATABASE_ENABLED=false in server configuration.',
+    });
+  }
+  dbRouter(req, res, next);
+});
 
 // ---------------------------------------------------------------------------
 // Root redirect
@@ -229,6 +259,109 @@ app.use((err, req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// Billing engine management
+// ---------------------------------------------------------------------------
+
+/**
+ * Stable hash of an engine config array — cheap change detection on refresh.
+ */
+function hashEngineConfigs(configs) {
+  return JSON.stringify(
+    configs
+      .map(e => ({ id: e.id, primary: e.primary, secondary: e.secondary }))
+      .sort((a, b) => a.id - b.id)
+  );
+}
+
+/**
+ * Apply a new set of engine configs to the live beClient:
+ *   - Add engines that are new
+ *   - Remove engines no longer present
+ *   - Update (replace) engines whose connection details changed
+ * Updates enginesReady and logs transitions.
+ */
+function applyEngineConfigs(engineConfigs) {
+  const incoming = new Map(engineConfigs.map(e => [e.id, e]));
+  const currentStatus = beClient.getStatus();
+  const existing = new Set(Object.keys(currentStatus).map(Number));
+
+  // Remove engines no longer in config
+  for (const id of existing) {
+    if (!incoming.has(id)) {
+      console.log(`[BeClient] Removing billing engine ${id} (dropped from config)`);
+      beClient.removeBillingEngine(id);
+    }
+  }
+
+  // Add or update engines (addBillingEngine is idempotent)
+  for (const [id, cfg] of incoming) {
+    if (!existing.has(id)) {
+      console.log(`[BeClient] Adding billing engine ${id}`);
+    }
+    beClient.addBillingEngine(cfg);
+  }
+
+  // Re-evaluate readiness
+  const status = beClient.getStatus();
+  const wasReady = enginesReady;
+  enginesReady = Object.values(status).some(e =>
+    e.primary.available || (e.secondary && e.secondary.available)
+  );
+
+  if (!wasReady && enginesReady) console.log('[BeClient] Billing engines active — /api routes open');
+  if (wasReady && !enginesReady) console.warn('[BeClient] All billing engine connections lost — /api routes suspended');
+}
+
+/**
+ * Poll the DB for VWS node config and reconcile with the live beClient.
+ * Called once at DB-ready time, then on a periodic interval.
+ */
+async function refreshEngineConfigFromDb() {
+  try {
+    const engineJSON = await getVWSNodes(db, redis);
+    const engineConfigs = formatVWSNodes(engineJSON);
+    const newHash = hashEngineConfigs(engineConfigs);
+
+    if (newHash === lastEngineConfigHash) return; // no change
+
+    console.log('[BeClient] Engine configuration change detected — reconciling');
+    lastEngineConfigHash = newHash;
+    applyEngineConfigs(engineConfigs);
+  } catch (err) {
+    console.error('[BeClient] Failed to refresh engine config from DB:', err.message);
+  }
+}
+
+/**
+ * Initialise billing engines from the flat config file (non-DB path).
+ * Also starts a periodic readiness check so enginesReady tracks live state.
+ */
+function initEnginesFromConfig() {
+  console.log('[BeClient] Using config file for billing engine initialisation');
+  const engineConfigs = config.getBillingEngines();
+
+  if (engineConfigs.length === 0) {
+    console.warn('[BeClient] No billing engines in config — /api routes suspended until engines are added');
+    return;
+  }
+
+  applyEngineConfigs(engineConfigs);
+
+  // Re-evaluate readiness on a schedule (connections can go up/down after startup)
+  const checkMs = (config.get('engineReadinessCheckMinutes') || 1) * 60 * 1000;
+  const readinessTimer = setInterval(() => {
+    const status = beClient.getStatus();
+    const wasReady = enginesReady;
+    enginesReady = Object.values(status).some(e =>
+      e.primary.available || (e.secondary && e.secondary.available)
+    );
+    if (!wasReady && enginesReady) console.log('[BeClient] Billing engines available — /api routes open');
+    if (wasReady && !enginesReady) console.warn('[BeClient] Billing engines unavailable — /api routes suspended');
+  }, checkMs);
+  if (readinessTimer.unref) readinessTimer.unref();
+}
+
+// ---------------------------------------------------------------------------
 // DB-dependent initialisation — runs once the connection probe succeeds
 // ---------------------------------------------------------------------------
 async function onDbReady() {
@@ -236,25 +369,27 @@ async function onDbReady() {
   await loadProfileTags();
   console.log('[ProfileParser] Profiles loaded');
 
-  // 2. Schedule periodic refresh
-  const refreshIntervalMs = (config.get('profileTagRefreshMinutes') || 60) * 60 * 1000;
+  // 2. Schedule periodic profile tag refresh
+  const tagRefreshMs = (config.get('profileTagRefreshMinutes') || 60) * 60 * 1000;
   profileRefreshTimer = setInterval(async () => {
     console.log('[ProfileParser] Scheduled tag metadata refresh...');
     await loadProfileTags({ forceRefresh: true });
-  }, refreshIntervalMs);
-
+  }, tagRefreshMs);
   if (profileRefreshTimer.unref) profileRefreshTimer.unref();
-  console.log(`[ProfileParser] Tag metadata will refresh every ${refreshIntervalMs / 60000} minutes`);
+  console.log(`[ProfileParser] Tag metadata will refresh every ${tagRefreshMs / 60000} minutes`);
 
-  // 3. Load billing engines from DB if configured
+  // 3. Load/reconcile billing engines from DB (if DB is the source of truth)
   if (config.get('useDatabaseForBillingEngines')) {
-    console.log('[BeClient] Using database for billing engine initialisation');
-    const engineJSON = await getVWSNodes(db, redis);
-    const engineConfigs = formatVWSNodes(engineJSON);
-    console.log(engineConfigs);
-    for (const engineConfig of engineConfigs) {
-      beClient.addBillingEngine(engineConfig);
-    }
+    console.log('[BeClient] Using database for billing engine configuration');
+    await refreshEngineConfigFromDb();
+
+    const engineRefreshMs = (config.get('engineConfigRefreshMinutes') || 5) * 60 * 1000;
+    engineConfigRefreshTimer = setInterval(async () => {
+      console.log('[BeClient] Checking for engine configuration changes...');
+      await refreshEngineConfigFromDb();
+    }, engineRefreshMs);
+    if (engineConfigRefreshTimer.unref) engineConfigRefreshTimer.unref();
+    console.log(`[BeClient] Engine config will re-sync from DB every ${engineRefreshMs / 60000} minutes`);
   }
 
   // 4. Merge DB paths into the live Swagger spec
@@ -262,7 +397,8 @@ async function onDbReady() {
 }
 
 // ---------------------------------------------------------------------------
-// DB connection loop — tries once immediately, then retries on a schedule
+// DB connection loop — tries once immediately, retries on schedule.
+// Only entered when DB_ENABLED is true.
 // ---------------------------------------------------------------------------
 async function tryConnectDb() {
   dbRetryTimer = null;
@@ -272,8 +408,8 @@ async function tryConnectDb() {
       await db.initialise();
     }
 
-    // Pool creation succeeds even when the DB is unreachable — probe with a
-    // real query so we know the connection is actually usable.
+    // Pool creation succeeds even when the host is unreachable — probe with a
+    // real query to confirm the connection is actually usable.
     await db.testConnection();
 
     dbReady = true;
@@ -304,75 +440,107 @@ function line(label, value = '') {
 const server = app.listen(PORT, config.get('host'), async () => {
   const baseUrl = config.get('serverUrl');
 
-  // Redis status log (redis init is async, may not be resolved yet — best-effort)
   if (redis) {
     console.log('[Redis] Redis is available');
   } else {
     console.log('[Redis] Redis is unavailable');
   }
 
-  // Billing engines from config (DB engines added later in onDbReady if configured)
+  // Billing engines from config loaded now; DB-sourced engines loaded in onDbReady()
   if (!config.get('useDatabaseForBillingEngines')) {
-    console.log('[BeClient] Using config file for billing engine initialisation');
-    const engineConfigs = config.getBillingEngines();
-    for (const engineConfig of engineConfigs) {
-      beClient.addBillingEngine(engineConfig);
-    }
+    initEnginesFromConfig();
   }
+
+  const dbStatusLabel = !DB_ENABLED ? 'disabled' : 'connecting (non-blocking)...';
 
   console.log('');
   console.log('╔' + '═'.repeat(WIDTH) + '╗');
   console.log(line('      OCNCC Billing Engine Client - REST API Server'));
   console.log('╠' + '═'.repeat(WIDTH) + '╣');
-  console.log(line('  Server:      ', baseUrl));
-  console.log(line('  Swagger UI:  ', `${baseUrl}/api-docs`));
-  console.log(line('  API Base:    ', `${baseUrl}/api`));
-  console.log(line('  DB API:      ', `${baseUrl}/db`));
-  console.log(line('  Health:      ', `${baseUrl}/api/health`));
+  console.log(line('  Server:           ', baseUrl));
+  console.log(line('  Swagger UI:       ', `${baseUrl}/api-docs`));
+  console.log(line('  API Base:         ', `${baseUrl}/api`));
+  console.log(line('  DB API:           ', `${baseUrl}/db`));
+  console.log(line('  Health:           ', `${baseUrl}/api/health`));
   console.log('╠' + '═'.repeat(WIDTH) + '╣');
-  console.log(line('  Client Name:     ', config.get('clientName')));
-  console.log(line('  Message Timeout: ', `${config.get('messageTimeoutMs')}ms`));
-  console.log(line('  Heartbeat:       ', `${config.get('heartbeatIntervalMs')}ms`));
-  console.log(line('  Billing Engines: ', `${config.getBillingEngines().length} configured`));
-  console.log(line('  Redis:           ', redis ? (config.get('redisUrl') || 'redis://localhost:6379') : 'disabled'));
-  console.log(line('  DB Status:       ', 'connecting (non-blocking)...'));
+  console.log(line('  Client Name:          ', config.get('clientName')));
+  console.log(line('  Message Timeout:      ', `${config.get('messageTimeoutMs')}ms`));
+  console.log(line('  Heartbeat:            ', `${config.get('heartbeatIntervalMs')}ms`));
+  console.log(line('  File Billing Engines: ', `${config.getBillingEngines().length} configured`));
+  console.log(line('  Redis:                ', redis ? (config.get('redisUrl') || 'redis://localhost:6379') : 'disabled'));
+  console.log(line('  Database:             ', dbStatusLabel));
   console.log('╚' + '═'.repeat(WIDTH) + '╝');
   console.log('');
 
-  if (config.getBillingEngines().length === 0 && !config.get('useDatabaseForBillingEngines')) {
+  if (!enginesReady && !config.get('useDatabaseForBillingEngines')) {
     console.log('⚠  No billing engines configured. Add them via:');
     console.log('   POST /api/config/engines');
     console.log('   or set BE_ENGINES env var: "1:10.0.0.1:1500:10.0.0.2:1500"');
     console.log('');
   }
 
-  // Kick off DB connection attempt — non-blocking, server is already listening
-  tryConnectDb();
+  if (DB_ENABLED) {
+    tryConnectDb();
+  } else {
+    console.log('[DB] Database disabled (DATABASE_ENABLED=false) — skipping connection');
+  }
 });
 
 // ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
-function shutdown(signal) {
-  console.log(`\n[Server] ${signal} received — shutting down...`);
+let shuttingDown = false;
 
-  // Cancel any pending retry
+async function shutdown(signal) {
+  if (shuttingDown) return; // guard against duplicate signals
+  shuttingDown = true;
+
+  console.log(`\n[Server] ${signal} received — shutting down gracefully...`);
+
+  // 1. Stop accepting new HTTP connections immediately
+  server.close(() => console.log('[Server] HTTP server closed — no new connections accepted'));
+
+  // 2. Cancel all background timers
   if (dbRetryTimer) clearTimeout(dbRetryTimer);
   if (profileRefreshTimer) clearInterval(profileRefreshTimer);
+  if (engineConfigRefreshTimer) clearInterval(engineConfigRefreshTimer);
 
-  beClient.destroy();
-  statsTracker.destroy();
-  alertManager.destroy();
-  if (redis) redis.disconnect();
+  // 3. Close billing engine TCP connections cleanly (sends FIN to each BE)
+  console.log('[BeClient] Closing billing engine connections...');
+  try { beClient.destroy(); } catch (err) { console.warn('[BeClient] destroy error:', err.message); }
 
-  server.close(async () => {
-    try { await db.close(); } catch { /* best-effort */ }
-    console.log('[Server] Stopped.');
-    process.exit(0);
-  });
+  // 4. Shut down supporting services
+  try { statsTracker.destroy(); } catch { /* best-effort */ }
+  try { alertManager.destroy(); } catch { /* best-effort */ }
+
+  // 5. Disconnect Redis
+  if (redis) {
+    console.log('[Redis] Disconnecting...');
+    try { redis.disconnect(); } catch { /* best-effort */ }
+  }
+
+  // 6. Close Oracle pool — allows in-flight queries to complete before draining
+  if (DB_ENABLED && db) {
+    console.log('[DB] Closing Oracle connection pool...');
+    try {
+      await db.close();
+      console.log('[DB] Oracle pool closed');
+    } catch (err) {
+      console.warn('[DB] Error closing Oracle pool:', err.message);
+    }
+  }
+
+  console.log('[Server] Shutdown complete.');
+  process.exit(0);
 }
 
+// Guard: only run shutdown once even if both SIGINT and SIGTERM arrive
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+// Surface unhandled rejections — prevents silent failures during async shutdown
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] Unhandled promise rejection:', reason);
+});
 
 module.exports = { app, db, profileParser, redis };

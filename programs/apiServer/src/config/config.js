@@ -39,8 +39,12 @@ const DEFAULT_CONFIG = {
   jwtEnabled: true,                    // Require JWT authentication for APIs
 
   // Redis Statistics Cache
-  redisEnabled: false,                 // Optionally enable Redis for API statistics
-  redisUrl: 'redis://swisspi:6379',   // Redis connection details
+  redisEnabled: true,                 // Optionally enable Redis for API statistics
+  redisUrl: 'redis://swisspi:6379',   // Redis connection URL (overridden by individual fields below if set)
+  redisHost: 'swisspi',               // BE_REDIS_HOST
+  redisPort: 6379,                    // BE_REDIS_PORT
+  redisUser: 'intellicharter',        // BE_REDIS_USER
+  redisPassword: 'w1mbold345',        // BE_REDIS_PASSWORD
 
   // Alerting - Syslog
   syslogEnabled: false,
@@ -57,6 +61,21 @@ const DEFAULT_CONFIG = {
   // Each entry: { id, primary: { ip, port }, secondary: { ip, port } }
   billingEngines: [],
   useDatabaseForBillingEngines: true,
+
+  // Database feature flag — set to false to disable all Oracle connection attempts
+  databaseEnabled: true,
+
+  // How often to retry a failed DB connection (minutes)
+  dbRetryIntervalMinutes: 1,
+
+  // How often to refresh profile tag metadata from DB (minutes)
+  profileTagRefreshMinutes: 60,
+
+  // How often to re-read VWS node config from DB and reconcile billing engines (minutes)
+  engineConfigRefreshMinutes: 5,
+
+  // How often to re-check billing engine readiness when using static config (minutes)
+  engineReadinessCheckMinutes: 1,
 };
 
 class Config {
@@ -93,6 +112,10 @@ class Config {
     // Redis Cache Overrides
     if (process.env.BE_REDIS_ENABLED) this.settings.redisEnabled = process.env.BE_REDIS_ENABLED === 'true';
     if (process.env.BE_REDIS_URL) this.settings.redisUrl = process.env.BE_REDIS_URL;
+    if (process.env.BE_REDIS_HOST) this.settings.redisHost = process.env.BE_REDIS_HOST;
+    if (process.env.BE_REDIS_PORT) this.settings.redisPort = parseInt(process.env.BE_REDIS_PORT, 10);
+    if (process.env.BE_REDIS_USER) this.settings.redisUser = process.env.BE_REDIS_USER;
+    if (process.env.BE_REDIS_PASSWORD) this.settings.redisPassword = process.env.BE_REDIS_PASSWORD;
 
     // Syslog Overrides
     if (process.env.BE_SYSLOG_ENABLED) this.settings.syslogEnabled = process.env.BE_SYSLOG_ENABLED === 'true';
@@ -104,6 +127,21 @@ class Config {
     if (process.env.BE_SNMP_HOST) this.settings.snmpHost = process.env.BE_SNMP_HOST;
     if (process.env.BE_SNMP_PORT) this.settings.snmpPort = parseInt(process.env.BE_SNMP_PORT, 10);
     if (process.env.BE_SNMP_COMMUNITY) this.settings.snmpCommunity = process.env.BE_SNMP_COMMUNITY;
+
+    // Database feature flag & timing overrides
+    if (process.env.DATABASE_ENABLED)
+      this.settings.databaseEnabled = process.env.DATABASE_ENABLED !== 'false' &&
+        process.env.DATABASE_ENABLED.toLowerCase() !== 'false';
+    if (process.env.DB_RETRY_INTERVAL_MINUTES)
+      this.settings.dbRetryIntervalMinutes = parseInt(process.env.DB_RETRY_INTERVAL_MINUTES, 10);
+    if (process.env.PROFILE_TAG_REFRESH_MINUTES)
+      this.settings.profileTagRefreshMinutes = parseInt(process.env.PROFILE_TAG_REFRESH_MINUTES, 10);
+    if (process.env.ENGINE_CONFIG_REFRESH_MINUTES)
+      this.settings.engineConfigRefreshMinutes = parseInt(process.env.ENGINE_CONFIG_REFRESH_MINUTES, 10);
+    if (process.env.ENGINE_READINESS_CHECK_MINUTES)
+      this.settings.engineReadinessCheckMinutes = parseInt(process.env.ENGINE_READINESS_CHECK_MINUTES, 10);
+    if (process.env.USE_DATABASE_FOR_BILLING_ENGINES)
+      this.settings.useDatabaseForBillingEngines = process.env.USE_DATABASE_FOR_BILLING_ENGINES === 'true';
 
     // Parse BE_ENGINES env var: "1:10.0.0.1:1500:10.0.0.2:1500,2:10.0.0.3:1500:10.0.0.4:1500"
     if (process.env.BE_ENGINES) {
@@ -141,6 +179,43 @@ class Config {
 
   toJSON() {
     return { ...this.settings };
+  }
+
+  getLoggerConfig() {
+    const env = process.env.NODE_ENV || 'development';
+
+    const configs = {
+      development: {
+        level: 'DEBUG',
+        enabled: true,
+        json: false,
+        colors: true,
+        timestamp: true,
+      },
+      staging: {
+        level: 'TRACE',
+        enabled: true,
+        json: true,
+        colors: false,
+        timestamp: true,
+      },
+      production: {
+        level: 'INFO',
+        enabled: true,
+        json: true,
+        colors: false,
+        timestamp: true,
+      },
+    };
+
+    return {
+      ...configs[env],
+      level: CONFIG.LOG_LEVEL,
+      enabled: CONFIG.LOG_ENABLED,
+      json: CONFIG.LOG_JSON,
+      colors: CONFIG.LOG_COLORS,
+      timestamp: CONFIG.LOG_TIMESTAMPS,
+    };
   }
 }
 
