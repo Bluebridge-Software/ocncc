@@ -66,6 +66,7 @@ let profileRefreshTimer = null;
 // Billing engine readiness — true once at least one engine connection is active
 let enginesReady = false;
 let engineConfigRefreshTimer = null;
+let enginesReadinessTimer = null;  // polls availability after engines are configured
 
 // Stable hash of the last known engine config from DB, used to diff on refresh
 let lastEngineConfigHash = null;
@@ -185,6 +186,28 @@ let dbSpecMerged = false;
 function mergeDbSpec() {
   if (!DB_ENABLED || !dbSpec || dbSpecMerged) return;
   dbSpecMerged = true;
+  dbReady = true;
+
+  mainSpec.tags = [...(mainSpec.tags || []), ...dbSpec.tags];
+  Object.assign(mainSpec.paths, dbSpec.paths);
+  mainSpec.components.schemas = Object.assign({}, mainSpec.components.schemas || {}, dbSpec.components.schemas);
+  mainSpec.components.responses = Object.assign({}, mainSpec.components.responses || {}, dbSpec.components.responses);
+
+  console.log('[Swagger] Database endpoints merged into API spec');
+
+  // 🔥 Re-mount swagger
+  app._router.stack = app._router.stack.filter(
+    layer => !(layer.route && layer.route.path === '/api-docs')
+  );
+
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(mainSpec, swaggerOptions));
+}
+/*
+function mergeDbSpec() {
+  console.log('[Swagger] Merging DB spec into API spec');
+  if (!DB_ENABLED || !dbSpec || dbSpecMerged) return;
+  dbSpecMerged = true;
+  dbReady = true;
 
   mainSpec.tags = [...(mainSpec.tags || []), ...dbSpec.tags];
   Object.assign(mainSpec.paths, dbSpec.paths);
@@ -193,6 +216,7 @@ function mergeDbSpec() {
 
   console.log('[Swagger] Database endpoints merged into API spec');
 }
+  */
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(mainSpec, swaggerOptions));
 
@@ -274,11 +298,72 @@ function hashEngineConfigs(configs) {
 }
 
 /**
+ * Evaluate current engine availability and update enginesReady.
+ * Starts/stops statsTracker in step with readiness transitions.
+ * Called by the readiness polling loop.
+ */
+function evaluateEngineReadiness() {
+  const status = beClient.getStatus();
+  const wasReady = enginesReady;
+  enginesReady = Object.values(status).some(e =>
+    e.primary.available || (e.secondary && e.secondary.available)
+  );
+
+  if (!wasReady && enginesReady) {
+    console.log('[BeClient] Billing engines active — /api routes open');
+    // Start collecting statistics now that requests can flow
+    if (statsTracker && typeof statsTracker.start === 'function') statsTracker.start();
+  }
+
+  if (wasReady && !enginesReady) {
+    console.warn('[BeClient] All billing engine connections lost — /api routes suspended');
+    // Pause statistics while no engines are reachable
+    if (statsTracker && typeof statsTracker.pause === 'function') statsTracker.pause();
+  }
+}
+
+/**
+ * Start (or restart) the readiness polling loop.
+ * Idempotent — safe to call multiple times; only one timer runs at a time.
+ * Polls quickly at first (every 5 s) while engines are connecting, then
+ * settles to the configured interval once stable.
+ */
+function startReadinessPolling() {
+  if (enginesReadinessTimer) return; // already running
+
+  const stableMs = (config.get('engineReadinessCheckMinutes') || 1) * 60 * 1000;
+
+  // Use a short initial interval so the first connection is detected quickly,
+  // then switch to the configured interval once we first become ready.
+  let currentMs = 5000;
+  let switched = false;
+
+  function poll() {
+    evaluateEngineReadiness();
+
+    if (enginesReady && !switched) {
+      // Engines came up — switch to the slower stable interval
+      switched = true;
+      currentMs = stableMs;
+    }
+
+    enginesReadinessTimer = setTimeout(poll, currentMs);
+    if (enginesReadinessTimer.unref) enginesReadinessTimer.unref();
+  }
+
+  enginesReadinessTimer = setTimeout(poll, currentMs);
+  if (enginesReadinessTimer.unref) enginesReadinessTimer.unref();
+
+  console.log(`[BeClient] Readiness polling started (initial: ${currentMs / 1000}s, stable: ${stableMs / 1000}s)`);
+}
+
+/**
  * Apply a new set of engine configs to the live beClient:
  *   - Add engines that are new
  *   - Remove engines no longer present
  *   - Update (replace) engines whose connection details changed
- * Updates enginesReady and logs transitions.
+ * Does NOT evaluate readiness immediately — the async TCP connections won't be
+ * established yet. Readiness is tracked by startReadinessPolling() instead.
  */
 function applyEngineConfigs(engineConfigs) {
   const incoming = new Map(engineConfigs.map(e => [e.id, e]));
@@ -301,15 +386,9 @@ function applyEngineConfigs(engineConfigs) {
     beClient.addBillingEngine(cfg);
   }
 
-  // Re-evaluate readiness
-  const status = beClient.getStatus();
-  const wasReady = enginesReady;
-  enginesReady = Object.values(status).some(e =>
-    e.primary.available || (e.secondary && e.secondary.available)
-  );
-
-  if (!wasReady && enginesReady) console.log('[BeClient] Billing engines active — /api routes open');
-  if (wasReady && !enginesReady) console.warn('[BeClient] All billing engine connections lost — /api routes suspended');
+  // Kick off readiness polling — connections are async so we cannot evaluate
+  // availability here. The polling loop will detect when they come up.
+  startReadinessPolling();
 }
 
 /**
@@ -346,19 +425,7 @@ function initEnginesFromConfig() {
   }
 
   applyEngineConfigs(engineConfigs);
-
-  // Re-evaluate readiness on a schedule (connections can go up/down after startup)
-  const checkMs = (config.get('engineReadinessCheckMinutes') || 1) * 60 * 1000;
-  const readinessTimer = setInterval(() => {
-    const status = beClient.getStatus();
-    const wasReady = enginesReady;
-    enginesReady = Object.values(status).some(e =>
-      e.primary.available || (e.secondary && e.secondary.available)
-    );
-    if (!wasReady && enginesReady) console.log('[BeClient] Billing engines available — /api routes open');
-    if (wasReady && !enginesReady) console.warn('[BeClient] Billing engines unavailable — /api routes suspended');
-  }, checkMs);
-  if (readinessTimer.unref) readinessTimer.unref();
+  // Readiness polling is started inside applyEngineConfigs
 }
 
 // ---------------------------------------------------------------------------
@@ -385,7 +452,6 @@ async function onDbReady() {
 
     const engineRefreshMs = (config.get('engineConfigRefreshMinutes') || 5) * 60 * 1000;
     engineConfigRefreshTimer = setInterval(async () => {
-      console.log('[BeClient] Checking for engine configuration changes...');
       await refreshEngineConfigFromDb();
     }, engineRefreshMs);
     if (engineConfigRefreshTimer.unref) engineConfigRefreshTimer.unref();
@@ -504,6 +570,7 @@ async function shutdown(signal) {
   if (dbRetryTimer) clearTimeout(dbRetryTimer);
   if (profileRefreshTimer) clearInterval(profileRefreshTimer);
   if (engineConfigRefreshTimer) clearInterval(engineConfigRefreshTimer);
+  if (enginesReadinessTimer) clearTimeout(enginesReadinessTimer);
 
   // 3. Close billing engine TCP connections cleanly (sends FIN to each BE)
   console.log('[BeClient] Closing billing engine connections...');
