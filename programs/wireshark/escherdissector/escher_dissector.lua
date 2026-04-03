@@ -713,42 +713,103 @@ end
 local dissect_map, dissect_array
 
 -- ============================================================
+-- value_summary
+--   Returns a compact one-line display string for any scalar
+--   value, used to build the inline "[KEY] = <value>" text.
+--   Returns nil for container types (MAP / ARRAY / LIST).
+-- ============================================================
+local function value_summary(tvb, typecode, abs_offset)
+    local tlen = tvb:len()
+    if typecode == 0 then
+        return ""    -- NULL → show nothing after "="
+
+    elseif typecode == 1 then   -- INT32
+        if abs_offset + 4 > tlen then return nil end
+        return tostring(tvb(abs_offset, 4):int())
+
+    elseif typecode == 2 then   -- DATE
+        if abs_offset + 4 > tlen then return nil end
+        return "date " .. format_timestamp(tvb(abs_offset, 4):uint())
+
+    elseif typecode == 3 then   -- SYMBOL
+        if abs_offset + 4 > tlen then return nil end
+        local sym = decode_symbol(tvb(abs_offset, 4):uint())
+        return "'" .. sym .. "'"
+
+    elseif typecode == 4 then   -- FLOAT64
+        if abs_offset + 8 > tlen then return nil end
+        return "[float64: " .. tvb(abs_offset, 8):bytes():tohex() .. "]"
+
+    elseif typecode == 5 then   -- STRING
+        if abs_offset >= tlen then return nil end
+        local first   = tvb(abs_offset, 1):uint()
+        local str_len, hdr_sz
+        if bit.band(first, 0x80) == 0 then
+            str_len = first;  hdr_sz = 1
+        else
+            if abs_offset + 2 > tlen then return nil end
+            str_len = bit.band(tvb(abs_offset, 2):uint(), 0x7FFF)
+            hdr_sz  = 2
+        end
+        if abs_offset + hdr_sz + str_len > tlen then return nil end
+        return '"' .. tvb(abs_offset + hdr_sz, str_len):string() .. '"'
+
+    elseif typecode == 8 then   -- RAW
+        if abs_offset + 4 > tlen then return nil end
+        local raw_len = tvb(abs_offset, 4):uint()
+        return string.format("[%u bytes raw]", raw_len)
+
+    elseif typecode == 9 then   -- INT64
+        if abs_offset + 8 > tlen then return nil end
+        return tostring(tvb(abs_offset, 8):int64())
+    end
+
+    return nil   -- container type — caller handles
+end
+
+-- ============================================================
 -- dissect_value
---   tvb          : the full packet tvb
---   parent_tree  : tree node to attach the decoded value to
---   typecode     : one of the TYPECODES above
---   abs_offset   : absolute byte position in tvb where data starts
---   label        : display label (e.g. "[ACTN]")
---   depth        : recursion depth guard
---   sym_name     : raw 4-char symbol name (from map index)
--- Returns bytes consumed (informational; 0 for NULL).
+--   Renders a single field value onto parent_tree.
+--
+--   For scalars the entire "[KEY] = value" line is set on the
+--   parent_tree node itself (no child node is created).
+--
+--   For MAP / ARRAY / LIST a collapsible child subtree is
+--   created showing "[KEY] = Map of N elements" etc., and the
+--   contents are decoded recursively inside that subtree.
+--
+--   The hidden filterable ProtoFields are still attached so
+--   that display-filter expressions continue to work.
 -- ============================================================
 local function dissect_value(tvb, parent_tree, typecode, abs_offset, label, depth, sym_name)
     if depth > 20 then return 0 end
-    local tlen = tvb:len()
+    local tlen     = tvb:len()
     local spec_field = sym_name and SYMBOL_PROTO_FIELDS[sym_name]
 
+    -- ── Scalar types ─────────────────────────────────────────
     if typecode == 0 then   -- NULL
-        local item = parent_tree:add(f_val_null, tvb(abs_offset, 0), "(null)")
-        item:set_text(label .. " = (null)")
+        -- Show "[KEY] =" with nothing after (matches screenshot: "[TZ  ] =")
+        parent_tree:set_text(label .. " =")
+        -- Attach a zero-length hidden node so filters still match
+        local item = parent_tree:add(f_val_null, tvb(abs_offset, 0), ""):set_hidden()
         return 0
 
     elseif typecode == 1 then   -- INT32
         if abs_offset + 4 > tlen then return 0 end
-        local val  = tvb(abs_offset, 4):int()
-        local item = parent_tree:add(f_val_int32, tvb(abs_offset, 4))
-        item:set_text(string.format("%s = %d", label, val))
+        local val = tvb(abs_offset, 4):int()
+        parent_tree:set_text(string.format("%s = %d", label, val))
+        parent_tree:add(f_val_int32, tvb(abs_offset, 4)):set_hidden()
         if spec_field then
             parent_tree:add(spec_field, tvb(abs_offset, 4), tostring(val)):set_hidden()
         end
         return 4
 
-    elseif typecode == 2 then   -- DATE (u32 unix timestamp)
+    elseif typecode == 2 then   -- DATE
         if abs_offset + 4 > tlen then return 0 end
-        local ts   = tvb(abs_offset, 4):uint()
-        local fts  = format_timestamp(ts)
-        local item = parent_tree:add(f_val_date, tvb(abs_offset, 4), fts)
-        item:set_text(string.format("%s = %s", label, fts))
+        local ts  = tvb(abs_offset, 4):uint()
+        local fts = "date " .. format_timestamp(ts)
+        parent_tree:set_text(string.format("%s = %s", label, fts))
+        parent_tree:add(f_val_date, tvb(abs_offset, 4)):set_hidden()
         if spec_field then
             parent_tree:add(spec_field, tvb(abs_offset, 4), fts):set_hidden()
         end
@@ -756,16 +817,14 @@ local function dissect_value(tvb, parent_tree, typecode, abs_offset, label, dept
 
     elseif typecode == 3 then   -- SYMBOL
         if abs_offset + 4 > tlen then return 0 end
-        local sv   = tvb(abs_offset, 4):uint()
-        local sym  = decode_symbol(sv)
-        local item = parent_tree:add(f_val_symbol, tvb(abs_offset, 4), sym)
-        item:set_text(string.format("%s = '%s'", label, sym))
-        
+        local sv  = tvb(abs_offset, 4):uint()
+        local sym = decode_symbol(sv)
+        parent_tree:set_text(string.format("%s = '%s'", label, sym))
+        parent_tree:add(f_val_symbol, tvb(abs_offset, 4)):set_hidden()
         local sym_stripped = sym:match("^%s*(.-)%s*$")
         if sym_stripped ~= sym then
             parent_tree:add(f_val_symbol, tvb(abs_offset, 4), sym_stripped):set_hidden()
         end
-
         if spec_field then
             parent_tree:add(spec_field, tvb(abs_offset, 4), sym):set_hidden()
             if sym_stripped ~= sym then
@@ -774,79 +833,71 @@ local function dissect_value(tvb, parent_tree, typecode, abs_offset, label, dept
         end
         return 4
 
-    elseif typecode == 4 then   -- FLOAT64 (byte-reversed on Linux)
-        -- Entry::htonf() swaps all 8 bytes before sending on Linux.
-        -- Show the raw bytes; a filter expression can't easily re-interpret them.
+    elseif typecode == 4 then   -- FLOAT64
         if abs_offset + 8 > tlen then return 0 end
-        local item = parent_tree:add(f_val_float, tvb(abs_offset, 8))
-        item:set_text(string.format("%s = [float64 byte-reversed: %s]",
-                      label, tvb(abs_offset, 8):bytes():tohex()))
+        local hex = tvb(abs_offset, 8):bytes():tohex()
+        parent_tree:set_text(string.format("%s = [float64: %s]", label, hex))
+        parent_tree:add(f_val_float, tvb(abs_offset, 8)):set_hidden()
         return 8
 
     elseif typecode == 5 then   -- STRING
         if abs_offset >= tlen then return 0 end
-        local first  = tvb(abs_offset, 1):uint()
+        local first = tvb(abs_offset, 1):uint()
         local str_len, hdr_sz
         if bit.band(first, 0x80) == 0 then
-            -- Single-byte length (<128 chars)
-            str_len = first
-            hdr_sz  = 1
+            str_len = first;  hdr_sz = 1
         else
-            -- Two-byte length (bit15 set, value in lower 15 bits)
             if abs_offset + 2 > tlen then return 0 end
             str_len = bit.band(tvb(abs_offset, 2):uint(), 0x7FFF)
             hdr_sz  = 2
         end
         if abs_offset + hdr_sz + str_len > tlen then return 0 end
-        local item = parent_tree:add(f_val_string, tvb(abs_offset + hdr_sz, str_len))
         local sval = tvb(abs_offset + hdr_sz, str_len):string()
-        item:set_text(string.format("%s = '%s'", label, sval))
-        
+        parent_tree:set_text(string.format('%s = "%s"', label, sval))
+        parent_tree:add(f_val_string, tvb(abs_offset + hdr_sz, str_len)):set_hidden()
         local sval_stripped = sval:match("^%s*(.-)%s*$")
         if sval_stripped ~= sval then
             parent_tree:add(f_val_string, tvb(abs_offset + hdr_sz, str_len), sval_stripped):set_hidden()
         end
-
         if spec_field then
             parent_tree:add(spec_field, tvb(abs_offset + hdr_sz, str_len), sval):set_hidden()
             if sval_stripped ~= sval then
                 parent_tree:add(spec_field, tvb(abs_offset + hdr_sz, str_len), sval_stripped):set_hidden()
             end
         end
-        -- Padded to 4-byte boundary
         return math.floor((hdr_sz + str_len + 3) / 4) * 4
-
-    elseif typecode == 6 or typecode == 11 then   -- ARRAY (6) or LIST (11, used for BALS and similar vectors)
-        local sub = parent_tree:add(escher_proto, tvb(abs_offset, 0),
-                                    label .. " [" .. (typecode == 11 and "LIST" or "ARRAY") .. "]")
-        return dissect_array(tvb, sub, abs_offset, depth + 1)
 
     elseif typecode == 8 then   -- RAW
         if abs_offset + 4 > tlen then return 0 end
         local raw_len = tvb(abs_offset, 4):uint()
         local avail   = math.min(raw_len, tlen - abs_offset - 4)
-        local item    = parent_tree:add(f_val_raw, tvb(abs_offset + 4, avail))
-        item:set_text(string.format("%s = [%u bytes raw]", label, raw_len))
+        parent_tree:set_text(string.format("%s = [%u bytes raw]", label, raw_len))
+        parent_tree:add(f_val_raw, tvb(abs_offset + 4, avail)):set_hidden()
         return math.floor((4 + raw_len + 3) / 4) * 4
 
     elseif typecode == 9 then   -- INT64
         if abs_offset + 8 > tlen then return 0 end
-        local item = parent_tree:add(f_val_int64, tvb(abs_offset, 8))
-        local v64  = tostring(tvb(abs_offset, 8):int64())
-        item:set_text(string.format("%s = %s", label, v64))
+        local v64 = tostring(tvb(abs_offset, 8):int64())
+        parent_tree:set_text(string.format("%s = %s", label, v64))
+        parent_tree:add(f_val_int64, tvb(abs_offset, 8)):set_hidden()
         if spec_field then
             parent_tree:add(spec_field, tvb(abs_offset, 8), v64):set_hidden()
         end
         return 8
 
-    elseif typecode == 12 then  -- MAP  (ESCHER_MAP_TYPE = 12)
-        local sub = parent_tree:add(escher_proto, tvb(abs_offset, 0),
-                                    label .. " [MAP]")
-        return dissect_map(tvb, sub, abs_offset, depth + 1)
+    -- ── Container types ──────────────────────────────────────
+    elseif typecode == 6 or typecode == 11 then   -- ARRAY / LIST
+        -- The parent node label will be updated inside dissect_array
+        -- once we know the item count.  Seed it now as a placeholder.
+        parent_tree:set_text(label .. " = Array")
+        return dissect_array(tvb, parent_tree, abs_offset, depth + 1)
+
+    elseif typecode == 12 then   -- MAP
+        parent_tree:set_text(label .. " = Map")
+        return dissect_map(tvb, parent_tree, abs_offset, depth + 1)
 
     else
-        parent_tree:add(escher_proto, tvb(abs_offset, 4),
-            string.format("%s [unknown typecode %d]", label, typecode))
+        parent_tree:set_text(string.format("%s = [unknown typecode %d]", label, typecode))
         return 4
     end
 end
@@ -854,7 +905,9 @@ end
 -- ============================================================
 -- dissect_map
 --   Parses an ESCHER MAP beginning at byte `offset` in `tvb`.
---   Attaches decoded fields to `tree`.
+--   Each field is rendered as a single "[KEY] = value" node,
+--   with nested maps/arrays expanding inline.  All internal
+--   binary structure (header bytes, index entries) is hidden.
 --   Returns the map's declared total_byte_length.
 -- ============================================================
 dissect_map = function(tvb, tree, offset, depth)
@@ -868,91 +921,116 @@ dissect_map = function(tvb, tree, offset, depth)
     local first_u16 = tvb(offset, 2):uint()
 
     if first_u16 == 0xFFFE then
-        -- ---- Extended map header (variable-length) ----
         if offset + 12 > tlen then return 0 end
         local ctrl = tvb(offset + 3, 1):uint()
         ext_index  = bit.band(ctrl, 0x04) ~= 0
         total_len  = tvb(offset + 4, 4):uint()
         num_items  = tvb(offset + 8, 4):uint()
-        tree:add(f_ext_magic,     tvb(offset,     2))
-        tree:add(f_ext_ctrl,      tvb(offset + 2, 2))
-        tree:add(f_map_ext_len,   tvb(offset + 4, 4))
-        tree:add(f_map_ext_items, tvb(offset + 8, 4))
+        -- Hidden structural fields (keep for filters / bytes pane)
+        tree:add(f_ext_magic,     tvb(offset,     2)):set_hidden()
+        tree:add(f_ext_ctrl,      tvb(offset + 2, 2)):set_hidden()
+        tree:add(f_map_ext_len,   tvb(offset + 4, 4)):set_hidden()
+        tree:add(f_map_ext_items, tvb(offset + 8, 4)):set_hidden()
         items_start = offset + 12
         item_stride = ext_index and 8 or 4
-        tree:append_text(string.format(" [Extended Map: %d items, %d bytes]",
-                         num_items, total_len))
     else
-        -- ---- Standard map header (8 bytes) ----
-        -- [u16 total_len][u16 num_items][u32 internal_ptr]
         if offset + 8 > tlen then return 0 end
         total_len  = first_u16
         num_items  = tvb(offset + 2, 2):uint()
         ext_index  = false
-        tree:add(f_map_total, tvb(offset,     2))
-        tree:add(f_map_items, tvb(offset + 2, 2))
-        tree:add(f_map_ptr,   tvb(offset + 4, 4))
+        -- Hidden structural fields
+        tree:add(f_map_total, tvb(offset,     2)):set_hidden()
+        tree:add(f_map_items, tvb(offset + 2, 2)):set_hidden()
+        tree:add(f_map_ptr,   tvb(offset + 4, 4)):set_hidden()
         items_start = offset + 8
         item_stride = 4
-        tree:append_text(string.format(" [Map: %d items, %d bytes]",
-                         num_items, total_len))
     end
 
-    -- ---- Parse each 4-byte (or 8-byte extended) index entry ----
+    -- Update the label on the tree node that was created by the caller.
+    -- For a nested map this is e.g. "[BODY] = Map of 11 elements".
+    -- For the top-level root node we append the summary.
+    tree:append_text(string.format(" of %d element%s",
+                     num_items, num_items == 1 and "" or "s"))
+
+    -- ---- Parse each index entry ----
     for i = 0, num_items - 1 do
         local idx_off = items_start + i * item_stride
         if idx_off + 4 > tlen then break end
 
-        local entry_raw = tvb(idx_off, 4):uint()
-
-        -- Bit layout of a standard index entry (32 bits):
-        --   [31:13]  symbol value  (19 bits; decode_symbol masks to 0xFFFFE000)
-        --   [12:9]   typecode      (4 bits)
-        --   [8:0]    data_offset   (9 bits, in 4-byte words, relative to MAP START)
+        local entry_raw    = tvb(idx_off, 4):uint()
         local sym_val      = bit.band(entry_raw, 0xFFFFE000)
         local typecode     = bit.band(bit.rshift(entry_raw, 9), 0x0F)
         local sym_name     = decode_symbol(sym_val)
-        local tname        = TYPE_NAMES[typecode] or ("UNK" .. typecode)
 
         local data_off_words
         if ext_index and idx_off + 8 <= tlen then
-            -- Extended index: second word holds the offset
             data_off_words = tvb(idx_off + 4, 4):uint()
         else
             data_off_words = bit.band(entry_raw, 0x1FF)
         end
-
-        -- Data offset is relative to the START of this map
         local data_abs_off = map_start + data_off_words * 4
 
-        -- Create an expandable node for this key/value pair.
-        -- Use the human-readable label from FIELD_LABELS if available,
-        -- falling back to the raw 4-char symbol name.
-        local friendly    = field_label(sym_name)
-        local node_label  = string.format("%s [%s]", friendly, tname)
-        local entry_node  = tree:add(escher_proto, tvb(idx_off, item_stride), node_label)
+        -- Build the display label: "[SYM]"
+        -- Trim the sym_name to remove trailing spaces for cleaner display
+        local sym_trimmed = sym_name:match("^(.-)%s*$")
+        local label = string.format("[%s]", sym_trimmed)
+
+        -- Determine the byte range that this entry covers in the tvb.
+        -- For scalars we span the data bytes; for containers / NULL we
+        -- point at the index entry itself (zero-length would confuse Wireshark).
+        local entry_node
+        if typecode == 0 then
+            -- NULL: no data bytes, anchor to the index entry
+            entry_node = tree:add(escher_proto, tvb(idx_off, item_stride), label)
+        elseif typecode == 12 or typecode == 6 or typecode == 11 then
+            -- Container: will fill in size once decoded; span from data start
+            local span = (data_abs_off < tlen) and (tlen - data_abs_off) or 0
+            entry_node = tree:add(escher_proto, tvb(data_abs_off, math.max(span, 0)), label)
+        else
+            -- Scalar: span the data bytes if in range
+            if data_abs_off < tlen then
+                entry_node = tree:add(escher_proto, tvb(data_abs_off, 0), label)
+            else
+                entry_node = tree:add(escher_proto, tvb(idx_off, item_stride), label)
+            end
+        end
+
+        -- Add a hidden index-entry field for byte-level navigation
+        entry_node:add(f_entry_raw, tvb(idx_off, 4)):set_hidden()
+
+        -- Attach the hidden per-symbol filterable field
         entry_node:add(f_sym, tvb(idx_off, 4), sym_name):set_hidden()
         local friendly_base = FIELD_LABELS[sym_name]
         if friendly_base then
             entry_node:add(f_field_label, tvb(idx_off, 4), friendly_base):set_hidden()
         end
 
-        entry_node:add(f_entry_raw, tvb(idx_off, 4)):set_text(
-            string.format("Index: sym='%s' type=%s offset_words=%d (byte +%d)",
-                          sym_name, tname, data_off_words, data_off_words * 4))
-
-        -- Decode the value; pass the friendly label so value lines read e.g.
-        --   "Call Date (DATE) = 20260320161836 (1774023516)"
+        -- Decode the value onto (or under) entry_node
         if typecode == 0 then
-            -- NULL: no data bytes
-            entry_node:add(f_val_null, tvb(idx_off, 0), friendly .. " = (null)")
+            -- NULL: "[KEY] ="  (nothing after equals)
+            entry_node:set_text(label .. " =")
+            entry_node:add(f_val_null, tvb(idx_off, 0), ""):set_hidden()
+
         elseif data_abs_off >= tlen then
+            entry_node:set_text(string.format("%s = [offset out of range]", label))
             entry_node:add_expert_info(PI_MALFORMED, PI_ERROR,
                 string.format("Data offset %d out of range (pkt %d bytes)",
                               data_abs_off, tlen))
+
+        elseif typecode == 12 then
+            -- MAP: "[KEY] = Map" — will be updated to "Map of N elements" inside
+            entry_node:set_text(label .. " = Map")
+            dissect_map(tvb, entry_node, data_abs_off, depth + 1)
+
+        elseif typecode == 6 or typecode == 11 then
+            -- ARRAY/LIST: "[KEY] = Array" — updated inside dissect_array
+            entry_node:set_text(label .. " = Array")
+            dissect_array(tvb, entry_node, data_abs_off, depth + 1)
+
         else
+            -- Scalar: render inline on entry_node
             dissect_value(tvb, entry_node, typecode, data_abs_off,
-                          friendly, depth, sym_name)
+                          label, depth, sym_name)
         end
     end
 
@@ -961,7 +1039,10 @@ end
 
 -- ============================================================
 -- dissect_array
---   Parses an ESCHER ARRAY beginning at byte `offset` in `tvb`.
+--   Parses an ESCHER ARRAY/LIST beginning at byte `offset`.
+--   Each element is rendered as "[N] = value" or as a
+--   collapsible "[N] = Map of M elements" subtree.
+--   All internal header bytes are hidden.
 --   Returns the array's declared total_byte_length.
 -- ============================================================
 dissect_array = function(tvb, tree, offset, depth)
@@ -975,32 +1056,33 @@ dissect_array = function(tvb, tree, offset, depth)
     local first_u16 = tvb(offset, 2):uint()
 
     if first_u16 == 0xFFFE then
-        -- Extended array
         if offset + 12 > tlen then return 0 end
         local ctrl = tvb(offset + 3, 1):uint()
         ext_index  = bit.band(ctrl, 0x04) ~= 0
         total_len  = tvb(offset + 4, 4):uint()
         num_items  = tvb(offset + 8, 4):uint()
-        tree:add(f_ext_magic,     tvb(offset,     2))
-        tree:add(f_ext_ctrl,      tvb(offset + 2, 2))
-        tree:add(f_map_ext_len,   tvb(offset + 4, 4))
-        tree:add(f_map_ext_items, tvb(offset + 8, 4))
+        tree:add(f_ext_magic,     tvb(offset,     2)):set_hidden()
+        tree:add(f_ext_ctrl,      tvb(offset + 2, 2)):set_hidden()
+        tree:add(f_map_ext_len,   tvb(offset + 4, 4)):set_hidden()
+        tree:add(f_map_ext_items, tvb(offset + 8, 4)):set_hidden()
         items_start = offset + 12
         item_stride = ext_index and 6 or 2
     else
-        -- Standard array: [u16 total][u16 count][u32 ptr][2-byte entries...]
         if offset + 8 > tlen then return 0 end
         total_len  = first_u16
         num_items  = tvb(offset + 2, 2):uint()
         ext_index  = false
-        tree:add(f_map_total, tvb(offset,     2))
-        tree:add(f_map_items, tvb(offset + 2, 2))
-        tree:add(f_map_ptr,   tvb(offset + 4, 4))
+        tree:add(f_map_total, tvb(offset,     2)):set_hidden()
+        tree:add(f_map_items, tvb(offset + 2, 2)):set_hidden()
+        tree:add(f_map_ptr,   tvb(offset + 4, 4)):set_hidden()
         items_start = offset + 8
         item_stride = 2
     end
 
-    tree:append_text(string.format(" [Array: %d items, %d bytes]", num_items, total_len))
+    -- Update the node text: "[KEY] = Array of N elements"
+    -- (tree text was pre-set to "[KEY] = Array" by the caller)
+    tree:append_text(string.format(" of %d element%s",
+                     num_items, num_items == 1 and "" or "s"))
 
     for i = 0, num_items - 1 do
         local idx_off = items_start + i * item_stride
@@ -1008,7 +1090,6 @@ dissect_array = function(tvb, tree, offset, depth)
 
         local entry_raw    = tvb(idx_off, 2):uint()
         local typecode     = bit.band(bit.rshift(entry_raw, 9), 0x0F)
-        local tname        = TYPE_NAMES[typecode] or ("UNK" .. typecode)
         local data_off_words
         if ext_index and idx_off + 6 <= tlen then
             data_off_words = tvb(idx_off + 2, 4):uint()
@@ -1017,11 +1098,41 @@ dissect_array = function(tvb, tree, offset, depth)
         end
         local data_abs_off = arr_start + data_off_words * 4
 
-        local label      = string.format("[%d]", i)
-        local entry_node = tree:add(escher_proto, tvb(idx_off, item_stride),
-                           string.format("%s [%s]", label, tname))
+        local label = string.format("[%d]", i)
 
-        if typecode ~= 0 and data_abs_off < tlen then
+        -- Create child node
+        local entry_node
+        if typecode == 0 then
+            entry_node = tree:add(escher_proto, tvb(idx_off, item_stride), label)
+        elseif typecode == 12 or typecode == 6 or typecode == 11 then
+            local span = (data_abs_off < tlen) and (tlen - data_abs_off) or 0
+            entry_node = tree:add(escher_proto, tvb(data_abs_off, math.max(span, 0)), label)
+        else
+            if data_abs_off < tlen then
+                entry_node = tree:add(escher_proto, tvb(data_abs_off, 0), label)
+            else
+                entry_node = tree:add(escher_proto, tvb(idx_off, item_stride), label)
+            end
+        end
+
+        if typecode == 0 then
+            entry_node:set_text(label .. " =")
+
+        elseif data_abs_off >= tlen then
+            entry_node:set_text(string.format("%s = [offset out of range]", label))
+            entry_node:add_expert_info(PI_MALFORMED, PI_ERROR,
+                string.format("Data offset %d out of range (pkt %d bytes)",
+                              data_abs_off, tlen))
+
+        elseif typecode == 12 then
+            entry_node:set_text(label .. " = Map")
+            dissect_map(tvb, entry_node, data_abs_off, depth + 1)
+
+        elseif typecode == 6 or typecode == 11 then
+            entry_node:set_text(label .. " = Array")
+            dissect_array(tvb, entry_node, data_abs_off, depth + 1)
+
+        else
             dissect_value(tvb, entry_node, typecode, data_abs_off, label, depth, nil)
         end
     end
@@ -1052,24 +1163,27 @@ function escher_proto.dissector(tvb, pinfo, tree)
                 local tc   = bit.band(bit.rshift(e, 9), 0x0F)
                 local doff = bit.band(e, 0x1FF) * 4
                 if sym == "ACTN" and tc == 3 and doff + 4 <= pkt_len then
-                    actn_str = "'" .. decode_symbol(tvb(doff, 4):uint()) .. "'"
+                    -- Trim trailing spaces for cleaner info column
+                    local v = decode_symbol(tvb(doff, 4):uint()):match("^(.-)%s*$")
+                    actn_str = v
                 elseif sym == "TYPE" and tc == 3 and doff + 4 <= pkt_len then
-                    type_str = "'" .. decode_symbol(tvb(doff, 4):uint()) .. "'"
+                    local v = decode_symbol(tvb(doff, 4):uint()):match("^(.-)%s*$")
+                    type_str = v
                 end
             end
         end
     end
 
     if actn_str or type_str then
-        pinfo.cols.info:set(string.format("ESCHER ACTN=%s TYPE=%s (%d bytes)",
+        pinfo.cols.info:set(string.format("ESCHER  %s  %s  (%d bytes)",
             actn_str or "?", type_str or "?", pkt_len))
     else
-        pinfo.cols.info:set(string.format("ESCHER map (%d bytes, %d items)",
+        pinfo.cols.info:set(string.format("ESCHER  %d bytes  %d fields",
             pkt_len, num_items))
     end
 
-    -- Dissect the top-level map
-    local root = tree:add(escher_proto, tvb(), "ESCHER Protocol")
+    -- Dissect the top-level map under a clean root node
+    local root = tree:add(escher_proto, tvb(), "ESCHER Protocol Data (© Blue Bridge Software)")
     dissect_map(tvb, root, 0, 0)
 
     return pkt_len
