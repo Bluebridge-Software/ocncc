@@ -749,12 +749,15 @@ function* iterPcapPackets(raw) {
     // ---- TCP ----
     const srcPort    = pkt.readUInt16BE(ipEnd);
     const dstPort    = pkt.readUInt16BE(ipEnd + 2);
+    const seq = pkt.readUInt32BE(ipEnd + 4);
+
     const tcpDataOff = (pkt[ipEnd + 12] >>> 4) * 4;
     const payload    = pkt.slice(ipEnd + tcpDataOff);
 
     if (!payload.length) continue;
 
-    yield { pktNum, tsSec, tsUsec, srcIp, srcPort, dstIp, dstPort, payload };
+    //yield { pktNum, tsSec, tsUsec, srcIp, srcPort, dstIp, dstPort, payload };
+    yield { pktNum, tsSec, tsUsec, srcIp, srcPort, dstIp, dstPort, payload, seq };
   }
 }
 
@@ -788,6 +791,108 @@ function decodeFromPcap(raw, escherPort = 1500, useLabels = true) {
       },
       ...decoded,
     });
+  }
+
+  return messages;
+}
+
+/**
+ * TCP Flow Key Generator
+ * @param {string} srcIp    - Source IPv4 address (e.g. "192.168.1.10")
+ * @param {number} srcPort  - Source TCP port
+ * @param {string} dstIp    - Destination IPv4 address
+ * @param {number} dstPort  - Destination TCP port
+ * @returns {string} Unique flow identifier in the form "srcIp:srcPort-dstIp:dstPort"
+ */
+function flowKey(srcIp, srcPort, dstIp, dstPort) {
+  return `${srcIp}:${srcPort}-${dstIp}:${dstPort}`;
+}
+
+/**
+ * Decode all ESCHER messages from a PCAP Buffer, but use TCP Stream Reassembly.
+ * @param {Buffer}  raw        - Raw PCAP file contents.
+ * @param {number}  escherPort - TCP port to filter on (default 1500).
+ * @param {boolean} useLabels  - Replace raw symbols with friendly names.
+ * @returns {object[]}
+ */
+function decodeFromPcapReassembled(raw, escherPort = 1500, useLabels = true) {
+  const flows = new Map();
+  // --- Step 1: group packets into flows ---
+  for (const pkt of iterPcapPackets(raw)) {
+    const { srcIp, srcPort, dstIp, dstPort, payload } = pkt;
+
+    if (srcPort !== escherPort && dstPort !== escherPort) continue;
+    if (!payload.length) continue;
+
+    const key = flowKey(srcIp, srcPort, dstIp, dstPort);
+
+    if (!flows.has(key)) {
+      flows.set(key, {
+        packets: [],
+        buffer: Buffer.alloc(0),
+      });
+    }
+
+    flows.get(key).packets.push(pkt);
+  }
+
+  const messages = [];
+
+  // --- Step 2: process each flow ---
+  for (const [key, flow] of flows.entries()) {
+    // Sort by sequence number (critical!)
+    flow.packets.sort((a, b) => a.seq - b.seq);
+
+    for (const pkt of flow.packets) {
+      const { payload, tsSec, tsUsec, srcIp, srcPort, dstIp, dstPort, pktNum } = pkt;
+
+      // Append to stream buffer
+      flow.buffer = Buffer.concat([flow.buffer, payload]);
+
+      // --- Step 3: extract ESCHER messages ---
+      while (flow.buffer.length >= 8) {
+        const totalLen = flow.buffer.readUInt16BE(0);
+
+        // Sanity check (ESCHER header validation)
+        if (totalLen < 8 || totalLen > 65535) {
+          // Not valid ESCHER → discard 1 byte and retry (resync)
+          flow.buffer = flow.buffer.slice(1);
+          continue;
+        }
+
+        if (flow.buffer.length < totalLen) {
+          // Wait for more data
+          break;
+        }
+
+        const msgBuf = flow.buffer.slice(0, totalLen);
+        flow.buffer = flow.buffer.slice(totalLen);
+
+        let decoded;
+        try {
+          decoded = decodeMap(msgBuf, useLabels);
+        } catch (e) {
+          continue;
+        }
+
+        const direction = dstPort === escherPort
+          ? 'client->server'
+          : 'server->client';
+
+        messages.push({
+          _meta: {
+            packet: pktNum,
+            timestamp: formatTimestamp(tsSec, tsUsec),
+            src: `${srcIp}:${srcPort}`,
+            dst: `${dstIp}:${dstPort}`,
+            direction,
+            bytes: msgBuf.length,
+            flow: key,
+          },
+          ...decoded,
+        });
+      }
+    }
   }
 
   return messages;
@@ -881,7 +986,7 @@ function main() {
 
     let messages;
     try {
-      messages = decodeFromPcap(raw, port, useLabels);
+      messages = decodeFromPcapReassembled(raw, port, useLabels);
     } catch (e) {
       console.error(`Decode error: ${e.message}`);
       process.exit(1);
