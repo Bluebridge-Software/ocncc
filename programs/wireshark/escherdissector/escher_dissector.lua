@@ -506,7 +506,7 @@ local FIELD_LABELS = {
     ["VTYP"] = "Voucher Type",
     ["VU  "] = "Voucher Update",
     ["WALR"] = "Wallet Reference",
-    ["WALT"] = "Wallet Reference",
+    ["WALT"] = "Wallet ID",
     ["WBIN"] = "NACK: Wallet Batch Inactive",
     ["WC  "] = "Wallet Create",
     ["WD  "] = "Wallet Delete",
@@ -548,7 +548,7 @@ local FIELD_LABELS = {
     ["XNS "] = "WU Exception: Not Subscribed",
     ["XWAF"] = "Exception: Wallet Activation Failure",
     ["XWR "] = "Exception: Wallet Reserved",
-    -- beVWARSMessage.hh symbols
+    -- VWARS symbols
     ["ACK "] = "Acknowledgement",
     ["ACTW"] = "Activate Wallet",
     ["AGGR"] = "Aggregate Buckets",
@@ -620,7 +620,7 @@ local FIELD_LABELS = {
     ["WSSP"] = "Wallet Suspended",
     ["WTRM"] = "Wallet Terminated",
     ["WUNU"] = "Wallet Unusable",
-    -- beOperationMessage.hh symbols
+    -- Operations symbols
     ["AVAL"] = "Absolute Value",
     ["BAL "] = "Balance (class)",
     ["BUCK"] = "Bucket (class)",
@@ -648,7 +648,7 @@ local FIELD_LABELS = {
     ["TERM"] = "Terminated (wallet state)",
     ["TRNL"] = "Transaction List",
     ["WTRN"] = "Writer Set Operation",
-    -- beControlMessage.hh symbols
+    -- Control symbols
     ["ALOC"] = "All Local Sent",
     ["ARES"] = "All Reservations Sent",
     ["CMMT"] = "Commit",
@@ -699,14 +699,37 @@ do
     escher_proto.fields = fields
 end
 
--- Return a display label for a symbol, including the raw symbol in parentheses.
+-- ============================================================
+-- Preferences
+--   Edit → Preferences → Protocols → ESCHER
+-- ============================================================
+escher_proto.prefs.show_friendly_names = Pref.bool(
+    "Show friendly field names",   -- label in the prefs dialog
+    false,                          -- default: off
+    "Append the human-readable field name after the symbol, " ..
+    "e.g. '[WALT] (Wallet ID)' instead of '[WALT]'."
+)
+
+-- ============================================================
+-- field_label
+--   Returns the display label for a map entry node.
+--   When the "Show friendly field names" preference is enabled:
+--     "[SYM] (Friendly Name)"  — if a friendly name exists
+--     "[SYM]"                  — otherwise
+--   When the preference is disabled:
+--     "[SYM]"                  — always
+--   The sym_name argument must be the raw 4-char symbol (with
+--   trailing spaces preserved), e.g. "WALT", "WI  ", "REQ ".
+-- ============================================================
 local function field_label(sym_name)
-    local friendly = FIELD_LABELS[sym_name]
-    if friendly then
-        return string.format("%s [%s]", friendly, sym_name)
-    else
-        return sym_name
+    local sym_trimmed = sym_name:match("^(.-)%s*$")
+    if escher_proto.prefs.show_friendly_names then
+        local friendly = FIELD_LABELS[sym_name]
+        if friendly then
+            return string.format("[%s] (%s)", sym_trimmed, friendly)
+        end
     end
+    return string.format("[%s]", sym_trimmed)
 end
 
 -- ============================================================
@@ -771,12 +794,14 @@ end
 -- dissect_value
 --   Renders a single field value onto parent_tree.
 --
---   For scalars the entire "[KEY] = value" line is set on the
---   parent_tree node itself (no child node is created).
+--   For scalars the entire "[KEY] (Friendly Name) = value" line
+--   is set on the parent_tree node itself (no child node is
+--   created).
 --
 --   For MAP / ARRAY / LIST a collapsible child subtree is
---   created showing "[KEY] = Map of N elements" etc., and the
---   contents are decoded recursively inside that subtree.
+--   created showing "[KEY] (Friendly Name) = Map of N elements"
+--   etc., and the contents are decoded recursively inside that
+--   subtree.
 --
 --   The hidden filterable ProtoFields are still attached so
 --   that display-filter expressions continue to work.
@@ -788,7 +813,7 @@ local function dissect_value(tvb, parent_tree, typecode, abs_offset, label, dept
 
     -- ── Scalar types ─────────────────────────────────────────
     if typecode == 0 then   -- NULL
-        -- Show "[KEY] =" with nothing after (matches screenshot: "[TZ  ] =")
+        -- Show "[KEY] (Friendly Name) ="  with nothing after equals
         parent_tree:set_text(label .. " =")
         -- Attach a zero-length hidden node so filters still match
         local item = parent_tree:add(f_val_null, tvb(abs_offset, 0), ""):set_hidden()
@@ -905,9 +930,9 @@ end
 -- ============================================================
 -- dissect_map
 --   Parses an ESCHER MAP beginning at byte `offset` in `tvb`.
---   Each field is rendered as a single "[KEY] = value" node,
---   with nested maps/arrays expanding inline.  All internal
---   binary structure (header bytes, index entries) is hidden.
+--   Each field is rendered as a single "[KEY] (Friendly Name) = value"
+--   node, with nested maps/arrays expanding inline.
+--   All internal binary structure (header bytes, index entries) is hidden.
 --   Returns the map's declared total_byte_length.
 -- ============================================================
 dissect_map = function(tvb, tree, offset, depth)
@@ -947,7 +972,7 @@ dissect_map = function(tvb, tree, offset, depth)
     end
 
     -- Update the label on the tree node that was created by the caller.
-    -- For a nested map this is e.g. "[BODY] = Map of 11 elements".
+    -- For a nested map this is e.g. "[BODY] (Body) = Map of 11 elements".
     -- For the top-level root node we append the summary.
     tree:append_text(string.format(" of %d element%s",
                      num_items, num_items == 1 and "" or "s"))
@@ -970,10 +995,8 @@ dissect_map = function(tvb, tree, offset, depth)
         end
         local data_abs_off = map_start + data_off_words * 4
 
-        -- Build the display label: "[SYM]"
-        -- Trim the sym_name to remove trailing spaces for cleaner display
-        local sym_trimmed = sym_name:match("^(.-)%s*$")
-        local label = string.format("[%s]", sym_trimmed)
+        -- Build the display label: "[SYM] (Friendly Name)" or "[SYM]"
+        local label = field_label(sym_name)
 
         -- Determine the byte range that this entry covers in the tvb.
         -- For scalars we span the data bytes; for containers / NULL we
@@ -1007,7 +1030,7 @@ dissect_map = function(tvb, tree, offset, depth)
 
         -- Decode the value onto (or under) entry_node
         if typecode == 0 then
-            -- NULL: "[KEY] ="  (nothing after equals)
+            -- NULL: "[KEY] (Friendly Name) ="  (nothing after equals)
             entry_node:set_text(label .. " =")
             entry_node:add(f_val_null, tvb(idx_off, 0), ""):set_hidden()
 
@@ -1018,12 +1041,12 @@ dissect_map = function(tvb, tree, offset, depth)
                               data_abs_off, tlen))
 
         elseif typecode == 12 then
-            -- MAP: "[KEY] = Map" — will be updated to "Map of N elements" inside
+            -- MAP: "[KEY] (Friendly Name) = Map" — updated to "Map of N elements" inside
             entry_node:set_text(label .. " = Map")
             dissect_map(tvb, entry_node, data_abs_off, depth + 1)
 
         elseif typecode == 6 or typecode == 11 then
-            -- ARRAY/LIST: "[KEY] = Array" — updated inside dissect_array
+            -- ARRAY/LIST: "[KEY] (Friendly Name) = Array" — updated inside dissect_array
             entry_node:set_text(label .. " = Array")
             dissect_array(tvb, entry_node, data_abs_off, depth + 1)
 
@@ -1079,8 +1102,8 @@ dissect_array = function(tvb, tree, offset, depth)
         item_stride = 2
     end
 
-    -- Update the node text: "[KEY] = Array of N elements"
-    -- (tree text was pre-set to "[KEY] = Array" by the caller)
+    -- Update the node text: "[KEY] (Friendly Name) = Array of N elements"
+    -- (tree text was pre-set to "... = Array" by the caller)
     tree:append_text(string.format(" of %d element%s",
                      num_items, num_items == 1 and "" or "s"))
 
@@ -1098,6 +1121,7 @@ dissect_array = function(tvb, tree, offset, depth)
         end
         local data_abs_off = arr_start + data_off_words * 4
 
+        -- Array elements are positional, not keyed — use numeric index label only
         local label = string.format("[%d]", i)
 
         -- Create child node
