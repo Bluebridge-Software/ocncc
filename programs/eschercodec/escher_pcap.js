@@ -27,6 +27,7 @@
 //   --port N   TCP port carrying ESCHER traffic (default: 1500)
 //   --raw      (decode only) Emit raw 4-char symbols as keys instead of
 //              human-readable labels
+//   --meta     incude metadata in the decoded output'
 //
 // JSON value conventions (encode):
 //   number (integer)  -> INT32, or INT64 if out of 32-bit range
@@ -768,7 +769,7 @@ function* iterPcapPackets(raw) {
  * @param {boolean} useLabels  - Replace raw symbols with friendly names.
  * @returns {object[]}
  */
-function decodeFromPcap(raw, escherPort = 1500, useLabels = true) {
+function decodeFromPcap(raw, escherPort = 1500, useLabels = true, exportMetadata = false) {
   const messages = [];
 
   for (const { pktNum, tsSec, tsUsec, srcIp, srcPort, dstIp, dstPort, payload }
@@ -780,17 +781,23 @@ function decodeFromPcap(raw, escherPort = 1500, useLabels = true) {
     const decoded   = decodeMap(payload, useLabels);
     const direction = dstPort === escherPort ? 'client->server' : 'server->client';
 
-    messages.push({
-      _meta: {
-        packet:    pktNum,
-        timestamp: formatTimestamp(tsSec, tsUsec),
-        src:       `${srcIp}:${srcPort}`,
-        dst:       `${dstIp}:${dstPort}`,
-        direction,
-        bytes:     payload.length,
-      },
-      ...decoded,
-    });
+    if (exportMetadata) {
+      messages.push({
+        _meta: {
+          packet:    pktNum,
+          timestamp: formatTimestamp(tsSec, tsUsec),
+          src:       `${srcIp}:${srcPort}`,
+          dst:       `${dstIp}:${dstPort}`,
+          direction,
+          bytes:     payload.length,
+        },
+        ...decoded,
+      });
+    } else {
+      messages.push({
+        ...decoded,
+      });
+    }
   }
 
   return messages;
@@ -815,7 +822,7 @@ function flowKey(srcIp, srcPort, dstIp, dstPort) {
  * @param {boolean} useLabels  - Replace raw symbols with friendly names.
  * @returns {object[]}
  */
-function decodeFromPcapReassembled(raw, escherPort = 1500, useLabels = true) {
+function decodeFromPcapReassembled(raw, escherPort = 1500, useLabels = true, exportMetadata = false) {
   const flows = new Map();
   // --- Step 1: group packets into flows ---
   for (const pkt of iterPcapPackets(raw)) {
@@ -879,18 +886,24 @@ function decodeFromPcapReassembled(raw, escherPort = 1500, useLabels = true) {
           ? 'client->server'
           : 'server->client';
 
-        messages.push({
-          _meta: {
-            packet: pktNum,
-            timestamp: formatTimestamp(tsSec, tsUsec),
-            src: `${srcIp}:${srcPort}`,
-            dst: `${dstIp}:${dstPort}`,
-            direction,
-            bytes: msgBuf.length,
-            flow: key,
-          },
-          ...decoded,
-        });
+        if(exportMetadata) {
+          messages.push({
+            _meta: {
+              packet: pktNum,
+              timestamp: formatTimestamp(tsSec, tsUsec),
+              src: `${srcIp}:${srcPort}`,
+              dst: `${dstIp}:${dstPort}`,
+              direction,
+              bytes: msgBuf.length,
+              flow: key,
+            },
+            ...decoded,
+          });
+        } else {
+          messages.push({
+            ...decoded,
+          });
+        }
       }
     }
   }
@@ -925,6 +938,7 @@ function printUsage() {
     'Options:',
     '  --port N   TCP port carrying ESCHER traffic (default: 1500)',
     '  --raw      (decode) Emit raw 4-char symbols as keys instead of labels',
+    '  --meta     incude metadata in the decoded output',
     '',
   ].join('\n'));
 }
@@ -943,6 +957,10 @@ function main() {
 
   const rawIdx  = args.indexOf('--raw');
   const useLabels = rawIdx === -1;
+
+  const metaIdx = args.indexOf('--meta');
+  const exportMetadata = metaIdx != -1;
+
   if (rawIdx !== -1) args.splice(rawIdx, 1);
 
   const [command, inputFile, outputFile] = args;
@@ -986,7 +1004,7 @@ function main() {
 
     let messages;
     try {
-      messages = decodeFromPcapReassembled(raw, port, useLabels);
+      messages = decodeFromPcapReassembled(raw, port, useLabels, exportMetadata);
     } catch (e) {
       console.error(`Decode error: ${e.message}`);
       process.exit(1);
