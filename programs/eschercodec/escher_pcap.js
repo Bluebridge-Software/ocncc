@@ -929,7 +929,7 @@ function printUsage() {
     '',
     'Usage:',
     '  node escher_pcap.js encode  input.json  output.pcap  [--port N]',
-    '  node escher_pcap.js decode  input.pcap  output.json  [--port N] [--raw]',
+    '  node escher_pcap.js decode  input.pcap  output.json  [--port N] [--raw] [--meta]',
     '',
     'Commands:',
     '  encode   Convert a JSON array of ESCHER message objects to a PCAP file.',
