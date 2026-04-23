@@ -17,6 +17,7 @@
     "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "net-snmp": "^3.26.1",
+    "oracledb": "^6.10.0",
     "redis": "^5.11.0",
     "swagger-ui-express": "^5.0.0",
     "syslog-client": "^1.1.1",
