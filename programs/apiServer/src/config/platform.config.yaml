@@ -1,0 +1,178 @@
+# =============================================================================
+# OCNCC Telco AI Platform Configuration
+#
+# All ${VAR} placeholders are resolved from environment variables at startup.
+# The gateway, adapters, MCP servers, and role policies are all defined here.
+# No code changes are needed to: swap OCS, add a role, or add a new MCP server.
+#
+# © COPYRIGHT: Blue Bridge Software Ltd - 2026
+# Author: Tony Craven
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Gateway
+# -----------------------------------------------------------------------------
+gateway:
+  port: 4001
+  jwt_secret: ${GATEWAY_JWT_SECRET}
+  token_expiry: 8h                    # JWT lifetime for issued tokens
+  rate_limit:
+    window_ms: 60000                  # 1 minute window
+    max_requests: 300                 # per virtual key per window
+
+# -----------------------------------------------------------------------------
+# OCS Adapters
+# Define one entry per OCS backend. Multiple adapters of the same type are
+# allowed (e.g. OCNCC prod + OCNCC staging).
+# -----------------------------------------------------------------------------
+ocs_adapters:
+
+  - id: ocncc_prod
+    type: ocncc
+    label: "OCNCC Production"
+    config:
+      oracle_user:     ${ORACLE_USER}
+      oracle_password: ${ORACLE_PASSWORD}
+      oracle_service:  ${ORACLE_SMF_SERVICE}
+      redis_url:       ${REDIS_URL}
+      pool_min:        2
+      pool_max:        10
+
+  - id: ocncc_staging
+    type: ocncc
+    label: "OCNCC Staging"
+    config:
+      oracle_user:     ${ORACLE_STAGING_USER}
+      oracle_password: ${ORACLE_STAGING_PASSWORD}
+      oracle_service:  ${ORACLE_STAGING_SERVICE}
+      redis_url:       ${REDIS_URL}
+      pool_min:        1
+      pool_max:        4
+
+  # Matrixx — uncomment and populate when available
+  # - id: matrixx_prod
+  #   type: matrixx
+  #   label: "Matrixx Production"
+  #   config:
+  #     base_url: ${MATRIXX_URL}
+  #     api_key:  ${MATRIXX_API_KEY}
+  #     timeout_ms: 10000
+
+  # BRM — uncomment and populate when available
+  # - id: brm_prod
+  #   type: brm
+  #   label: "Oracle BRM Production"
+  #   config:
+  #     wsdl_url: ${BRM_WSDL_URL}
+  #     username: ${BRM_USER}
+  #     password: ${BRM_PASSWORD}
+
+  - id: mock
+    type: mock
+    label: "Mock (Testing)"
+    config: {}
+
+# -----------------------------------------------------------------------------
+# MCP Servers
+# Each entry becomes a running HTTP process.
+# ocs_adapter references an id from ocs_adapters[] above.
+# -----------------------------------------------------------------------------
+mcp_servers:
+
+  - id: care
+    type: care
+    label: "Customer Care"
+    port: 3101
+    api_key: ${CARE_MCP_API_KEY}
+    token_secret: ${CARE_MCP_TOKEN_SECRET}
+    ocs_adapter: ocncc_prod
+    limits:
+      max_credit_gbp: 50.00
+      max_debit_gbp:  50.00
+
+  - id: bss
+    type: bss
+    label: "BSS Analytics"
+    port: 3102
+    api_key: ${BSS_MCP_API_KEY}
+    ocs_adapter: ocncc_prod
+
+  - id: oss
+    type: oss
+    label: "OSS Operations"
+    port: 3103
+    api_key: ${OSS_MCP_API_KEY}
+    token_secret: ${OSS_MCP_TOKEN_SECRET}
+    ocs_adapter: ocncc_prod
+    limits:
+      max_session_threshold_for_rebalance: 10000  # safety guard
+
+  # Example: staging care MCP using staging adapter
+  # - id: care_staging
+  #   type: care
+  #   label: "Customer Care (Staging)"
+  #   port: 3111
+  #   api_key: ${CARE_STAGING_MCP_API_KEY}
+  #   token_secret: ${CARE_STAGING_MCP_TOKEN_SECRET}
+  #   ocs_adapter: ocncc_staging
+  #   limits:
+  #     max_credit_gbp: 10.00
+  #     max_debit_gbp:  10.00
+
+# -----------------------------------------------------------------------------
+# Roles
+# Each role maps to: which MCP servers are accessible, write permissions,
+# auth method, and any spend/rate limits.
+# The gateway enforces these policies — MCP servers themselves are unreachable
+# except through the gateway.
+# -----------------------------------------------------------------------------
+roles:
+
+  - id: CARE
+    label: "Customer Care Agent"
+    allowed_mcp_servers: [care]
+    auth_method: jwt
+    write_operations: two_phase       # prepare/confirm required
+    limits:
+      max_credit_gbp: 50.00
+
+  - id: CARE_SUPERVISOR
+    label: "Care Supervisor"
+    allowed_mcp_servers: [care]
+    auth_method: jwt
+    write_operations: two_phase
+    limits:
+      max_credit_gbp: 500.00          # elevated limit for supervisors
+
+  - id: BSS
+    label: "BSS Analyst"
+    allowed_mcp_servers: [bss]
+    auth_method: jwt
+    write_operations: none            # BSS is read-only
+    limits:
+      max_query_rows: 10000
+
+  - id: OSS_HUMAN
+    label: "OSS Operator (Human)"
+    allowed_mcp_servers: [oss]
+    auth_method: jwt
+    write_operations: two_phase       # dry_run by default, confirm to execute
+
+  - id: OSS_MACHINE
+    label: "OSS Automation Agent"
+    allowed_mcp_servers: [oss]
+    auth_method: mtls                 # machine agents use client certificate
+    write_operations: full            # no human confirm step — agent owns approval
+
+  - id: ADMIN
+    label: "Platform Administrator"
+    allowed_mcp_servers: [care, bss, oss]
+    auth_method: jwt
+    write_operations: full
+
+  # Example: read-only care role for QA/audit
+  # - id: CARE_READONLY
+  #   label: "Care QA / Auditor"
+  #   allowed_mcp_servers: [care]
+  #   auth_method: jwt
+  #   write_operations: none
