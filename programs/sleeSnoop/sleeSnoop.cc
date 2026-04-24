@@ -163,9 +163,23 @@ void SnoopManager::scrape() {
               // check said 0x80000818 is a list. Let's see if we find a pointer to it.
               if (val == 0x80000818) {
                   LOG_INFO("Found eventListArray at SleeRoot offset 0x%lx -> %p", (long)i*8, (void*)val);
-                  // Scan e.g. 50 lists from here
-                  for (int k = 0; k < 50; k++) {
-                      g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)((char*)val + k * 144)); // 144 is guess for list size
+                  int stride = 0;
+                  // Find stride by searching for the next list signature
+                  for (int s = 16; s < 512; s += 8) {
+                      for (int m = 0; m <= 64; m += 4) {
+                          uintptr_t* lp = (uintptr_t*)((char*)val + s + m);
+                          if ((uintptr_t)lp > 0x80000000 && (uintptr_t)lp < 0x8fffffff) {
+                              if (lp[0] == (uintptr_t)lp && lp[1] == (uintptr_t)lp) {
+                                  stride = s; break;
+                              }
+                          }
+                      }
+                      if (stride) break;
+                  }
+                  if (!stride) stride = 144; // fallback
+                  LOG_INFO("Detected global list stride: %d", stride);
+                  for (int k = 0; k < 64; k++) {
+                      g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)((char*)val + k * stride));
                   }
               }
 
