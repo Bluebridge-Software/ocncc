@@ -78,22 +78,23 @@ bool SnoopManager::attach() {
 
   uintptr_t nameAddr = 0;
   char* search = (char*)addr;
-  LOG_INFO("Exhaustively searching 50MB of SHM for identifiers...");
-  const char* targets[] = {"textInterface", "sleeManagement", "radiusInterface", "sipInterface", "diameterInterface", "watchdog", "SleeRoot"};
+  LOG_INFO("Exhaustively searching 100MB of SHM for identifiers...");
+  const char* targets[] = {"Timer", "beVWARS0", "beVWARS1", "textInterface", "sleeManagement", "watchdog"};
   
-  for (size_t i = 0; i < 50000000; i++) {
-      for (int t = 0; t < 7; t++) {
+  for (size_t i = 0; i < 100000000; i++) {
+      for (int t = 0; t < 6; t++) {
           size_t tlen = strlen(targets[t]);
           if (memcmp(&search[i], targets[t], tlen) == 0) {
               nameAddr = (uintptr_t)&search[i];
               LOG_INFO("Found identifier '%s' at offset 0x%lx (Address %p)", targets[t], (long)i, (void*)nameAddr);
               
+              // 2. Backtrack to find pointers in SleeRoot
               uintptr_t* rootPtrs = (uintptr_t*)addr;
-              for (int offset = 0; offset < 4000; offset += 4) {
+              for (int offset = 0; offset < 600; offset += 4) {
                   uintptr_t objStart = nameAddr - offset;
                   for (int j = 0; j < 1024; j++) {
                       if (rootPtrs[j] == objStart) {
-                          LOG_INFO("IDENTIFIED SleeRoot offset 0x%lx -> %p", (long)j*8, (void*)objStart);
+                          LOG_INFO("IDENTIFIED SleeRoot offset 0x%lx -> %p (possibly firstInterfaceInstance)", (long)j*8, (void*)objStart);
                           if (!g_firstInterface) g_firstInterface = (SnoopInterfaceInstance*)objStart;
                       }
                   }
@@ -137,9 +138,9 @@ void SnoopManager::writePcapHeader() {
 void SnoopManager::scrape() {
   if (!capturing || !g_firstInterface) return;
   for (int i = 0; i < 20; i++) {
-    SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 1600); // 1600 is approx roundSize
+    SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 560);
     if (!ii->base.currentList) continue; 
-    SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + 40); // Offset 40 for eventList
+    SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + 40);
     SnoopEvent *ev = el->list.headElement.next;
     int evCount = 0;
     while (ev && ev != (void *)&el->list.headElement && evCount < 1000) {
