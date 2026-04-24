@@ -28,7 +28,7 @@ SnoopManager::~SnoopManager() { stop(); }
 
 bool SnoopManager::attach() {
   char* sleeFile = getenv("SLEE_FILE");
-  if (!sleeFile) sleeFile = (char*)"/IN/service_packages/SLEE/tmp/slee";
+  if (!sleeFile) sleeFile = (char*)"/tmp/slee";
   key_t key = ftok(sleeFile, 'a');
   int shmid = shmget(key, 0, 0);
   if (shmid < 0) {
