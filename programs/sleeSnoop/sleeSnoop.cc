@@ -164,7 +164,6 @@ void SnoopManager::scrape() {
   }
   fflush(stdout);
 }
-}
 
 void SnoopManager::writeEvent(SnoopEvent* ev, const char* name, int direction) {
   uint32_t len = ((uint32_t*)ev)[10]; // Offset 40
