@@ -131,6 +131,12 @@ void SnoopManager::scrape() {
                     if (len > 0 && len < 20000) {
                         EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 };
                         if (seenEvents.find(sig) == seenEvents.end()) {
+                            LOG_INFO("Found event at %p len %u", curr, len);
+                            unsigned char* d = (unsigned char*)curr;
+                            printf("[EVENT] %p: ", curr);
+                            for (int k = 0; k < 64; k++) printf("%02x ", d[k]);
+                            printf("\n");
+                            
                             writeEvent((SnoopEvent*)curr, "Scanned", 0);
                             seenEvents.insert(sig);
                             eventCount++;
