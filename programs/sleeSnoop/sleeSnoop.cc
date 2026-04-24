@@ -107,24 +107,14 @@ void SnoopManager::scrape() {
       }
     }
     
-    LOG_INFO("Scanning SHM for 'beVWARS' string...");
-    for (long i = 0; i < 12500000; i++) {
-        if (memcmp(&p[i], "beVWARS", 7) == 0) {
-            LOG_INFO("Found 'beVWARS' at offset 0x%lx", (long)i*8);
-            for (int j = 1; j < 100; j++) {
-                uintptr_t* head = &p[i-j];
-                if ((uintptr_t)head[1] == 0x80000818) {
-                    LOG_INFO("Likely event header for 'beVWARS' at %p (Offset 0x%lx)", head, (long)((char*)head - (char*)root));
-                    for (int k = 4; k < 40; k++) {
-                        uint32_t len = ((uint32_t*)head)[k];
-                        if (len > 0 && len < 10000) {
-                            LOG_INFO("Potential length %u at uint32 offset %d (Value 0x%x)", len, k, len);
-                        }
-                    }
-                }
-            }
-        }
+    LOG_INFO("Dumping beVWARS0 instance memory at 0x802abdf0:");
+    unsigned char* id = (unsigned char*)((char*)root + 0x2abdf0);
+    for (int k = 0; k < 256; k += 16) {
+        printf("[DEBUG] %04x: ", k);
+        for (int j = 0; j < 16; j++) printf("%02x ", id[k+j]);
+        printf("\n");
     }
+    fflush(stdout);
     fflush(stdout);
   }
 
