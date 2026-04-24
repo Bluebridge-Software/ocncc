@@ -107,8 +107,9 @@ void SnoopManager::scrape() {
       }
     }
     
-    LOG_INFO("Scanning 100MB SHM for populated lists...");
+    LOG_INFO("Scanning 100MB SHM for ALL events in ALL lists...");
     g_globalLists.clear();
+    int totalEvents = 0;
     for (long i = 0; i < 12500000; i++) {
         uintptr_t selfAddr = (uintptr_t)((char*)root + i * 8);
         uintptr_t next = p[i];
@@ -117,23 +118,39 @@ void SnoopManager::scrape() {
             prev >= 0x80000000 && prev < 0x90000000) {
             if (next != selfAddr && prev != selfAddr) {
                 uint32_t size = ((uint32_t*)root)[i*2 - 2];
-                if (size > 0 && size < 2000) {
-                    LOG_INFO("Found populated list! Head at 0x%lx, Size: %u, Next: 0x%lx", (long)i*8, size, (long)next);
-                    g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)((char*)root + i*8 - 16));
-                    
-                    if (next == 0x800006b0) {
-                        LOG_INFO("Dumping event 0x800006b0 (Known non-zero length):");
-                        unsigned char* d = (unsigned char*)next;
-                        for (int j = 0; j < 256; j += 16) {
-                            printf("[DEBUG] %04x: ", j);
-                            for (int k = 0; k < 16; k++) printf("%02x ", d[j+k]);
-                            printf("\n");
+                if (size > 0 && size < 5000) {
+                    // Walk this list
+                    uintptr_t* head = (uintptr_t*)((char*)root + i*8);
+                    uintptr_t* curr = (uintptr_t*)next;
+                    int count = 0;
+                    while (curr && curr != head && count < size + 10) {
+                        count++;
+                        totalEvents++;
+                        uint32_t len = ((uint32_t*)curr)[12];
+                        if (len > 0 && len < 10000) {
+                            char* data = (char*)curr + 64;
+                            bool isEscher = false;
+                            for (uint32_t k = 0; k < len && k < 100; k++) {
+                                if (memcmp(data + k, "Escher", 6) == 0) isEscher = true;
+                            }
+                            if (isEscher) LOG_INFO("Found ESCHER event at %p len %u", curr, len);
+                            
+                            EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 }; // Simple sig
+                            if (seenEvents.find(sig) == seenEvents.end()) {
+                                writeEvent((SnoopEvent*)curr, "Scanned", 0);
+                                seenEvents.insert(sig);
+                                eventCount++;
+                            }
                         }
+                        curr = (uintptr_t*)curr[2]; // Next pointer at offset 16? Or 32?
+                        // Let's check offset 16 (curr[2]) and 32 (curr[4])
+                        if (curr && ((uintptr_t)curr < 0x80000000 || (uintptr_t)curr > 0x8fffffff)) break;
                     }
                 }
             }
         }
     }
+    LOG_INFO("Total unique events found in scan: %d", (int)seenEvents.size());
     fflush(stdout);
   }
 
