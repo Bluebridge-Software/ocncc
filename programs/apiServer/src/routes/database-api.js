@@ -16,6 +16,8 @@ const {
     invalidateSubscriberCache,
 } = require('../database/database-queries');
 
+const logger = require('../utils/logger');
+
 /**
  * Create the database API router.
  *
@@ -54,10 +56,10 @@ function createDatabaseRouter(db, profileParser, redis) {
             if (result.count === 0) {
                 return res.status(404).json({ message: 'Subscriber not found' });
             }
-            console.log("result", JSON.stringify(result));
+
             res.json(result);
         } catch (err) {
-            console.error('[DB-API] GET /subscriber error:', err);
+            logger.error('[DB-API] GET /subscriber error:', err);
             res.status(500).json({ error: 'Internal server error', details: err.message });
         }
     });
@@ -87,7 +89,7 @@ function createDatabaseRouter(db, profileParser, redis) {
                 profile: decode ? row.decodedProfile : row.profile,
             });
         } catch (err) {
-            console.error('[DB-API] GET /subscriber/:cli/profile error:', err);
+            logger.error('[DB-API] GET /subscriber/:cli/profile error:', err);
             res.status(500).json({ error: 'Internal server error', details: err.message });
         }
     });
@@ -123,12 +125,12 @@ function createDatabaseRouter(db, profileParser, redis) {
             if (forceRefresh) {
                 profileParser._tagMeta = new Map(payload.data.map(t => [t.tagId, t]));
                 profileParser._tagTree = payload.tree;
-                console.log('[DB-API] profileParser tag metadata refreshed');
+                logger.info('[DB-API] profileParser tag metadata refreshed');
             }
 
             res.json(payload);
         } catch (err) {
-            console.error('[DB-API] GET /profile-tags error:', err);
+            logger.error('[DB-API] GET /profile-tags error:', err);
             res.status(500).json({ error: 'Internal server error', details: err.message });
         }
     });
