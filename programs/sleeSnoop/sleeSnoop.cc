@@ -104,16 +104,27 @@ void SnoopManager::scrape() {
             }
           }
         }
-      }
+    LOG_INFO("Identifying Escher-related descriptors...");
+    std::set<uintptr_t> escherDescriptors;
+    char* cp = (char*)root;
+    for (long i = 0; i < 100000000 - 32; i++) {
+        if (memcmp(&cp[i], "beProtocolClientEvent", 21) == 0 ||
+            memcmp(&cp[i], "beVWARSEvent", 12) == 0 ||
+            memcmp(&cp[i], "beServerEvent", 13) == 0) {
+            uintptr_t desc = (uintptr_t)(cp + i - 28);
+            escherDescriptors.insert(desc);
+            LOG_INFO("Found Escher descriptor '%s' at %p", &cp[i], (void*)desc);
+            // Skip ahead
+            i += 32;
+        }
     }
-    
-    LOG_INFO("Snooping active. Scanning for event traffic...");
+
+    LOG_INFO("Snooping active. Capturing Escher traffic...");
     for (long i = 0; i < 12500000; i++) {
         uintptr_t selfAddr = (uintptr_t)((char*)root + i * 8);
         uintptr_t next = p[i];
         uintptr_t prev = p[i+1];
         
-        // Find list heads: next and prev point to SHM, and next points back to some element that points back to here
         if (next >= 0x80000000 && next < 0x90000000 && 
             prev >= 0x80000000 && prev < 0x90000000 && (next % 8 == 0) && next != selfAddr) {
             
@@ -124,40 +135,30 @@ void SnoopManager::scrape() {
                 count++;
                 if ((uintptr_t)curr < 0x80000000 || (uintptr_t)curr > 0x8fffffff) break;
                 
-                // Event structure from dump:
-                // Offset 0: vtable
-                // Offset 8: next
-                // Offset 16: prev
-                // Offset 40: length (uint32)
-                // Offset 48: type descriptor pointer
-                // Offset 64: payload
-                
-                uint32_t len = ((uint32_t*)curr)[10]; // Offset 40
-                if (len > 0 && len < 30000) {
-                    EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 };
-                    // Calculate a quick hash for uniqueness
-                    unsigned char* d = (unsigned char*)curr + 64;
-                    uint32_t h = 0;
-                    for (uint32_t k = 0; k < len && k < 64; k++) h = (h * 31) + d[k];
-                    sig.hash = h;
+                uintptr_t desc = curr[6]; // Offset 48
+                if (escherDescriptors.find(desc) != escherDescriptors.end()) {
+                    uint32_t len = ((uint32_t*)curr)[10]; // Offset 40
+                    if (len > 0 && len < 30000) {
+                        EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 };
+                        unsigned char* d = (unsigned char*)curr + 64;
+                        uint32_t h = 0;
+                        for (uint32_t k = 0; k < len && k < 64; k++) h = (h * 31) + d[k];
+                        sig.hash = h;
 
-                    if (seenEvents.find(sig) == seenEvents.end()) {
-                        writeEvent((SnoopEvent*)curr, "Capture", 0);
-                        seenEvents.insert(sig);
-                        eventCount++;
-                        if (eventCount % 10 == 0) {
-                            LOG_INFO("Captured %lu events...", (unsigned long)eventCount);
+                        if (seenEvents.find(sig) == seenEvents.end()) {
+                            writeEvent((SnoopEvent*)curr, "Escher", 0);
+                            seenEvents.insert(sig);
+                            eventCount++;
                         }
                     }
                 }
                 
                 uintptr_t nextPtr = curr[1]; // Offset 8
-                if (nextPtr == (uintptr_t)curr) break; // Safety
+                if (nextPtr == (uintptr_t)curr) break;
                 curr = (uintptr_t*)nextPtr;
             }
         }
     }
-
     fflush(stdout);
 }
 }
