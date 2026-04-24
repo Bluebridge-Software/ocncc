@@ -69,7 +69,7 @@ void SnoopManager::stop() {
 }
 
 void SnoopManager::writePcapHeader() {
-  pcap_hdr_s header = { 0xa1b2c3d4, 2, 4, 0, 0, 65535, 147 };
+  pcap_hdr_s header = { 0xa1b2c3d4, 2, 4, 0, 0, 65535, 1 }; // 1 = LINKTYPE_ETHERNET
   fwrite(&header, sizeof(header), 1, pcapFile);
 }
 
@@ -163,20 +163,43 @@ void SnoopManager::scrape() {
 }
 
 void SnoopManager::writeEvent(SnoopEvent* ev, const char* name, int direction) {
+  uint32_t len = ((uint32_t*)ev)[10]; // Offset 40
+  if (len == 0 || len > 30000) return;
+
   struct timeval tv;
   gettimeofday(&tv, NULL);
-  slee_snoop_hdr_t snoopHdr;
-  memset(&snoopHdr, 0, sizeof(snoopHdr));
-  snoopHdr.version = 1;
-  snoopHdr.direction = direction;
-  strncpy(snoopHdr.event_type, name, 31);
-  uint32_t len = ((uint32_t*)ev)[12];
-  if (len > 10000) len = 0;
 
-  pcaprec_hdr_s rec = { (uint32_t)tv.tv_sec, (uint32_t)tv.tv_usec, (uint32_t)(sizeof(snoopHdr) + len), (uint32_t)(sizeof(snoopHdr) + len) };
+  // Wrap in Eth + IP + TCP for escher_pcap.js compatibility
+  // Eth (14) + IP (20) + TCP (20) = 54 bytes
+  unsigned char headers[54];
+  memset(headers, 0, 54);
+  
+  // Ethernet: Dst=00:11:22..., Src=66:77:88..., Type=0x0800 (IPv4)
+  headers[12] = 0x08; headers[13] = 0x00;
+
+  // IPv4: Ver=4, IHL=5, Total Len, Proto=6 (TCP), Src=1.1.1.1, Dst=1.1.1.2
+  headers[14] = 0x45;
+  uint16_t ipTotalLen = htons(20 + 20 + len);
+  memcpy(headers + 16, &ipTotalLen, 2);
+  headers[23] = 6; // TCP
+  headers[26] = 1; headers[27] = 1; headers[28] = 1; headers[29] = 1;
+  headers[30] = 1; headers[31] = 1; headers[32] = 1; headers[33] = 2;
+
+  // TCP: SrcPort=20000, DstPort=1500, DataOff=5 (20 bytes)
+  uint16_t srcPort = htons(20000);
+  uint16_t dstPort = htons(1500);
+  memcpy(headers + 34, &srcPort, 2);
+  memcpy(headers + 36, &dstPort, 2);
+  headers[46] = 0x50; // Data offset
+
+  pcaprec_hdr_s rec = { 
+    (uint32_t)tv.tv_sec, (uint32_t)tv.tv_usec, 
+    (uint32_t)(54 + len), (uint32_t)(54 + len) 
+  };
+  
   fwrite(&rec, sizeof(rec), 1, pcapFile);
-  fwrite(&snoopHdr, sizeof(snoopHdr), 1, pcapFile);
-  if (len > 0) fwrite((char*)ev + 64, len, 1, pcapFile);
+  fwrite(headers, 54, 1, pcapFile);
+  fwrite((char*)ev + 64, len, 1, pcapFile);
   fflush(pcapFile);
 }
 
