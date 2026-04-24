@@ -163,6 +163,14 @@ void SnoopManager::scrape() {
               LOG_INFO("Found pointer to event %p at address %p (Offset 0x%lx)", (void*)targetEvent, &p[i], (long)i*8);
           }
       }
+      
+      LOG_INFO("Dumping list memory at 0x80000818:");
+      unsigned char* ld = (unsigned char*)((char*)root + 0x818);
+      for (int k = 0; k < 128; k += 16) {
+          printf("[DEBUG] %04x: ", k);
+          for (int j = 0; j < 16; j++) printf("%02x ", ld[k+j]);
+          printf("\n");
+      }
       for (int i = 0; i < 2000; i++) {
           uintptr_t val = p[i];
           if (val >= 0x80000000 && val < 0x8fffffff && (val % 8 == 0)) {
