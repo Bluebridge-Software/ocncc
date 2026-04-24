@@ -157,16 +157,16 @@ void SnoopManager::scrape() {
       mapped = true;
       uintptr_t targetEvent = 0x802afd60;
       uintptr_t* p = (uintptr_t*)root;
-      LOG_INFO("Deep scanning first 1MB for pointers to event %p...", (void*)targetEvent);
-      for (int i = 0; i < 128000; i++) {
+      LOG_INFO("Exhaustively scanning 100MB of SHM for pointers to event %p...", (void*)targetEvent);
+      for (long i = 0; i < 12500000; i++) {
           if (p[i] == targetEvent) {
               LOG_INFO("Found pointer to event %p at address %p (Offset 0x%lx)", (void*)targetEvent, &p[i], (long)i*8);
           }
       }
       
-      LOG_INFO("Dumping list memory at 0x80000818:");
+      LOG_INFO("Dumping list memory at 0x80000818 (512 bytes):");
       unsigned char* ld = (unsigned char*)((char*)root + 0x818);
-      for (int k = 0; k < 128; k += 16) {
+      for (int k = 0; k < 512; k += 16) {
           printf("[DEBUG] %04x: ", k);
           for (int j = 0; j < 16; j++) printf("%02x ", ld[k+j]);
           printf("\n");
