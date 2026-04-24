@@ -107,93 +107,59 @@ void SnoopManager::scrape() {
       }
     }
     
-    LOG_INFO("Scanning SHM for events with type 'beProtocolClientEvent' (0x802a4ea0)...");
+    LOG_INFO("Snooping active. Scanning for event traffic...");
     for (long i = 0; i < 12500000; i++) {
-        if (p[i] == 0x802a4ea0) {
-            LOG_INFO("Found event object with type descriptor at offset 0x%lx", (long)i*8);
-            unsigned char* d = (unsigned char*)((char*)root + i*8 - 48);
-            for (int j = 0; j < 512; j += 16) {
-                printf("[EVENT_OBJ] %04x: ", j);
-                for (int k = 0; k < 16; k++) printf("%02x ", d[j+k]);
-                printf("\n");
+        uintptr_t selfAddr = (uintptr_t)((char*)root + i * 8);
+        uintptr_t next = p[i];
+        uintptr_t prev = p[i+1];
+        
+        // Find list heads: next and prev point to SHM, and next points back to some element that points back to here
+        if (next >= 0x80000000 && next < 0x90000000 && 
+            prev >= 0x80000000 && prev < 0x90000000 && (next % 8 == 0) && next != selfAddr) {
+            
+            uintptr_t* head = &p[i];
+            uintptr_t* curr = (uintptr_t*)next;
+            int count = 0;
+            while (curr && curr != head && count < 2000) {
+                count++;
+                if ((uintptr_t)curr < 0x80000000 || (uintptr_t)curr > 0x8fffffff) break;
+                
+                // Event structure from dump:
+                // Offset 0: vtable
+                // Offset 8: next
+                // Offset 16: prev
+                // Offset 40: length (uint32)
+                // Offset 48: type descriptor pointer
+                // Offset 64: payload
+                
+                uint32_t len = ((uint32_t*)curr)[10]; // Offset 40
+                if (len > 0 && len < 30000) {
+                    EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 };
+                    // Calculate a quick hash for uniqueness
+                    unsigned char* d = (unsigned char*)curr + 64;
+                    uint32_t h = 0;
+                    for (uint32_t k = 0; k < len && k < 64; k++) h = (h * 31) + d[k];
+                    sig.hash = h;
+
+                    if (seenEvents.find(sig) == seenEvents.end()) {
+                        writeEvent((SnoopEvent*)curr, "Capture", 0);
+                        seenEvents.insert(sig);
+                        eventCount++;
+                        if (eventCount % 10 == 0) {
+                            LOG_INFO("Captured %lu events...", (unsigned long)eventCount);
+                        }
+                    }
+                }
+                
+                uintptr_t nextPtr = curr[1]; // Offset 8
+                if (nextPtr == (uintptr_t)curr) break; // Safety
+                curr = (uintptr_t*)nextPtr;
             }
         }
     }
-    LOG_INFO("Total unique events found in scan: %d", (int)seenEvents.size());
+
     fflush(stdout);
-  }
-
-  // 1. Scan Global Lists
-  for (auto el : g_globalLists) {
-    uintptr_t* head = (uintptr_t*)((char*)el + 16);
-    SnoopEvent* ev = (SnoopEvent*)head[0];
-    int evCount = 0;
-    while (ev && (uintptr_t)ev != (uintptr_t)head && evCount < 200) {
-      evCount++;
-      if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
-      uint32_t len = ((uint32_t*)ev)[12];
-      if (len > 10000) len = 0;
-      uint32_t h = 0;
-      if (len > 0) {
-        unsigned char* d = (unsigned char*)((char*)ev + 64);
-        for (uint32_t k = 0; k < len && k < 64; k++) h = (h * 31) + d[k];
-      }
-      EventSignature sig = { ev, (size_t)len, h };
-      if (seenEvents.find(sig) == seenEvents.end()) {
-        LOG_DEBUG("Found Global event %p len %u", ev, len);
-        writeEvent(ev, "Global", 0);
-        seenEvents.insert(sig);
-        eventCount++;
-      }
-      ev = (SnoopEvent*)((uintptr_t*)ev)[2];
-    }
-  }
-
-  // 2. Scan Instance Lists
-  static int eventListOffset = -1;
-  if (g_firstInterface) {
-    for (int i = 0; i < 400; i++) {
-      SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 560);
-      if ((uintptr_t)ii < 0x80000000 || (uintptr_t)ii > 0x90000000) break;
-      char* name = (char*)ii + 240;
-      if (name[0] < 32 || name[0] > 126) continue;
-
-      if (eventListOffset == -1) {
-        uintptr_t* p = (uintptr_t*)ii;
-        for (int j = 1; j < 60; j++) {
-          if (p[j] == (uintptr_t)&p[j] && p[j + 1] == (uintptr_t)&p[j]) {
-            eventListOffset = (j - 1) * 8;
-            break;
-          }
-        }
-      }
-      if (eventListOffset == -1) continue;
-
-      SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + eventListOffset);
-      uintptr_t* head = (uintptr_t*)((char*)el + 16);
-      SnoopEvent* ev = (SnoopEvent*)head[0];
-      int evCount = 0;
-      while (ev && (uintptr_t)ev != (uintptr_t)head && evCount < 100) {
-        evCount++;
-        if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
-        uint32_t len = ((uint32_t*)ev)[12];
-        if (len > 10000) len = 0;
-        uint32_t h = 0;
-        if (len > 0) {
-          unsigned char* d = (unsigned char*)((char*)ev + 64);
-          for (uint32_t k = 0; k < len && k < 64; k++) h = (h * 31) + d[k];
-        }
-        EventSignature sig = { ev, (size_t)len, h };
-        if (seenEvents.find(sig) == seenEvents.end()) {
-          LOG_DEBUG("Found Instance event %p len %u on %s", ev, len, name);
-          writeEvent(ev, name, 0);
-          seenEvents.insert(sig);
-          eventCount++;
-        }
-        ev = (SnoopEvent*)((uintptr_t*)ev)[2];
-      }
-    }
-  }
+}
 }
 
 void SnoopManager::writeEvent(SnoopEvent* ev, const char* name, int direction) {
