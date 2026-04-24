@@ -103,14 +103,12 @@ bool SnoopManager::attach() {
   // headElement
   std::vector<void *> foundLists;
   uintptr_t *p = (uintptr_t *)addr;
-  for (int i = 1; i < 2000; i++) {
+  for (int i = 1; i < 10000; i++) {
     uintptr_t currentAddr = (uintptr_t)&p[i];
     if (p[i + 1] == currentAddr && p[i + 2] == currentAddr &&
         p[i] == (uintptr_t)&p[i - 1]) {
-      // Found a potential empty list head
-      // backtrack to find the SnoopLockedList start
       foundLists.push_back((void *)&p[i - 1]);
-      EE / tmp
+      LOG_INFO("Discovered potential list #%lu at %p", foundLists.size(), &p[i-1]);
     }
   }
 
@@ -192,14 +190,19 @@ void SnoopManager::scrape() {
   if (!capturing || !g_interfaceList)
     return;
 
+  static bool loggedOnce = false;
+  int iiCount = 0;
+
   // 1. Interfaces
   SnoopInterfaceInstance *ii = g_interfaceList->list.headElement.next;
   while (ii && ii != (void *)&g_interfaceList->list.headElement) {
-    // Try to find interfaceName. We'll use a conservative search if it looks
-    // garbage
+    iiCount++;
     const char *name = ii->interfaceName;
-    if (name[0] < 32 || name[0] > 126)
-      name = "Unknown";
+    if (name[0] < 32 || name[0] > 126) name = "Unknown";
+    
+    if (!loggedOnce) {
+        LOG_INFO("Scraper: Found interface '%s' at %p, eventList size: %d", name, ii, ii->eventList.list.size);
+    }
 
     if (!filters.empty() && filters.find(name) == filters.end()) {
       ii = ii->base.next;
@@ -207,7 +210,9 @@ void SnoopManager::scrape() {
     }
 
     SnoopEvent *ev = ii->eventList.list.headElement.next;
+    int evInList = 0;
     while (ev && ev != (void *)&ii->eventList.list.headElement) {
+      evInList++;
       EventSignature sig = {ev, (size_t)ev->length,
                             simpleHash(ev->data, (size_t)ev->length)};
       if (seenEvents.find(sig) == seenEvents.end()) {
@@ -216,8 +221,15 @@ void SnoopManager::scrape() {
         eventCount++;
       }
       ev = ev->base.next;
+      if (evInList > 1000) break; // Safety
     }
     ii = ii->base.next;
+    if (iiCount > 100) break; // Safety
+  }
+  
+  if (!loggedOnce && iiCount > 0) {
+      LOG_INFO("Scraper: Total interfaces scanned: %d", iiCount);
+      loggedOnce = true;
   }
 
   // 2. Applications
