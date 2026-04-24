@@ -152,14 +152,17 @@ void SnoopManager::scrape() {
   if (!capturing) return;
 
   // 0. Find global lists once
-  if (g_globalLists.empty()) {
+  static bool scanned = false;
+  if (!scanned) {
+      scanned = true;
       uintptr_t* p = (uintptr_t*)root;
-      for (int i = 0; i < 2000; i++) {
-          if (p[i] == (uintptr_t)&p[i] && p[i+1] == (uintptr_t)&p[i]) {
+      for (int i = 1; i < 2000; i++) {
+          uintptr_t fieldAddr = (uintptr_t)root + i*8;
+          if (p[i] == fieldAddr && p[i+1] == fieldAddr) {
               g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)&p[i-1]);
           }
       }
-      LOG_INFO("Found %lu global event lists", g_globalLists.size());
+      LOG_INFO("Discovered %lu global event lists in SleeRoot", (unsigned long)g_globalLists.size());
   }
 
   // 1. Scan Global Lists
