@@ -32,7 +32,7 @@ bool SnoopManager::attach() {
   key_t key = ftok(sleeFile, 'S');
   int shmid = shmget(key, 0, 0);
   if (shmid < 0) {
-    LOG_ERROR("Could not find SHM segment. Is SLEE running?");
+    LOG_ERROR("Could not find SHM segment (key 0x%08x). Error: %s. Is SLEE running?", key, strerror(errno));
     return false;
   }
   void* addr = shmat(shmid, (void*)0x80000000, SHM_RDONLY);
