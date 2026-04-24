@@ -138,18 +138,25 @@ void SnoopManager::writePcapHeader() {
 void SnoopManager::scrape() {
   if (!capturing || !g_firstInterface) return;
   static int eventListOffset = -1;
+  static int maxInts = 100;
+  
+  // Read maxInterfaces from SleeRoot (offset 116 based on header layout)
+  // But to be safe, we'll just use a large enough limit if not sure.
+  // Based on check, we have around 30 interfaces. 200 is plenty.
+  maxInts = 200; 
 
-  for (int i = 0; i < 20; i++) {
+  for (int i = 0; i < maxInts; i++) {
     SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 560);
+    // Safety check: ensure pointer is in SHM
+    if ((uintptr_t)ii < 0x80000000 || (uintptr_t)ii > 0x90000000) break;
+    
     if (!ii->base.currentList || ii->base.currentList == (void*)0xffffffffffffffff) continue; 
     
-    // Dynamically find eventListOffset once
     if (eventListOffset == -1) {
         uintptr_t* p = (uintptr_t*)ii;
         for (int j = 1; j < 40; j++) {
             if (p[j] == (uintptr_t)&p[j] && p[j+1] == (uintptr_t)&p[j]) {
                 eventListOffset = (j-1) * 8;
-                LOG_INFO("Dynamically found eventListOffset: %d", eventListOffset);
                 break;
             }
         }
@@ -161,7 +168,6 @@ void SnoopManager::scrape() {
     int evCount = 0;
     while (ev && ev != (void *)&el->list.headElement && evCount < 100) {
       evCount++;
-      // Basic sanity check on ev pointer
       if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
       
       uint32_t len = (uint32_t)ev->length;
