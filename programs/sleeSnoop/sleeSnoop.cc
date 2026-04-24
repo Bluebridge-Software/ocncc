@@ -123,28 +123,27 @@ void SnoopManager::scrape() {
                     uintptr_t* head = (uintptr_t*)((char*)root + i*8);
                     uintptr_t* curr = (uintptr_t*)next;
                     int count = 0;
-                    while (curr && curr != head && count < size + 10) {
+                    while (curr && curr != head && count < size + 20) {
                         count++;
-                        totalEvents++;
+                        if ((uintptr_t)curr < 0x80000000 || (uintptr_t)curr > 0x8fffffff) break;
+                        
                         uint32_t len = ((uint32_t*)curr)[12];
-                        if (len > 0 && len < 10000) {
-                            char* data = (char*)curr + 64;
-                            bool isEscher = false;
-                            for (uint32_t k = 0; k < len && k < 100; k++) {
-                                if (memcmp(data + k, "Escher", 6) == 0) isEscher = true;
-                            }
-                            if (isEscher) LOG_INFO("Found ESCHER event at %p len %u", curr, len);
-                            
-                            EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 }; // Simple sig
+                        if (len > 0 && len < 20000) {
+                            EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 };
                             if (seenEvents.find(sig) == seenEvents.end()) {
                                 writeEvent((SnoopEvent*)curr, "Scanned", 0);
                                 seenEvents.insert(sig);
                                 eventCount++;
                             }
                         }
-                        curr = (uintptr_t*)curr[2]; // Next pointer at offset 16? Or 32?
-                        // Let's check offset 16 (curr[2]) and 32 (curr[4])
-                        if (curr && ((uintptr_t)curr < 0x80000000 || (uintptr_t)curr > 0x8fffffff)) break;
+                        
+                        // Try to find next pointer. 
+                        // It's either at offset 16 (curr[2]) or 32 (curr[4])
+                        uintptr_t n1 = curr[2];
+                        uintptr_t n2 = curr[4];
+                        if (n1 >= 0x80000000 && n1 < 0x90000000) curr = (uintptr_t*)n1;
+                        else if (n2 >= 0x80000000 && n2 < 0x90000000) curr = (uintptr_t*)n2;
+                        else break;
                     }
                 }
             }
