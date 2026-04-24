@@ -15,43 +15,16 @@
 #include <atomic>
 #include "sleeSnoop.h"
 
-#define LOG_INFO(msg, ...) printf("[INFO] " msg "\n", ##__VA_MAX_ARGS__)
-#define LOG_DEBUG(msg, ...) printf("[DEBUG] " msg "\n", ##__VA_MAX_ARGS__)
-#define LOG_ERROR(msg, ...) printf("[ERROR] " msg "\n", ##__VA_MAX_ARGS__)
+#define LOG_INFO(msg, ...) printf("[INFO] " msg "\n", ##__VA_ARGS__)
+#define LOG_DEBUG(msg, ...) printf("[DEBUG] " msg "\n", ##__VA_ARGS__)
+#define LOG_ERROR(msg, ...) printf("[ERROR] " msg "\n", ##__VA_ARGS__)
 
 static SnoopInterfaceInstance* g_firstInterface = nullptr;
 static SnoopApplicationInstance* g_firstAppInst = nullptr;
 static std::vector<SnoopLockedList<SnoopEvent>*> g_globalLists;
 
-struct EventSignature {
-  SnoopEvent* addr;
-  size_t len;
-  uint32_t hash;
-  bool operator<(const EventSignature& other) const {
-    if (addr != other.addr) return addr < other.addr;
-    if (len != other.len) return len < other.len;
-    return hash < other.hash;
-  }
-};
-
-class SnoopManager {
-public:
-  SnoopManager() : root(nullptr), pcapFile(nullptr), capturing(false), eventCount(0) {}
-  bool attach();
-  void startCapture(const char* filename);
-  void stopCapture();
-  void scrape();
-  void writeEvent(SnoopEvent* ev, const char* name, int direction);
-  bool isCapturing() { return capturing; }
-  int getEventCount() { return eventCount; }
-
-private:
-  void* root;
-  FILE* pcapFile;
-  std::atomic<bool> capturing;
-  int eventCount;
-  std::set<EventSignature> seenEvents;
-};
+SnoopManager::SnoopManager() : root(nullptr), pcapFile(nullptr), capturing(false), eventCount(0) {}
+SnoopManager::~SnoopManager() { stop(); }
 
 bool SnoopManager::attach() {
   char* sleeFile = getenv("SLEE_FILE");
@@ -62,31 +35,37 @@ bool SnoopManager::attach() {
     LOG_ERROR("Could not find SHM segment. Is SLEE running?");
     return false;
   }
-  root = shmat(shmid, (void*)0x80000000, SHM_RDONLY);
-  if (root == (void*)-1) {
+  void* addr = shmat(shmid, (void*)0x80000000, SHM_RDONLY);
+  if (addr == (void*)-1) {
     LOG_ERROR("Could not attach to SHM at 0x80000000.");
     return false;
   }
+  root = (SnoopRoot*)addr;
   LOG_INFO("Attached to SHM at %p.", root);
   return true;
 }
 
-void SnoopManager::startCapture(const char* filename) {
-  pcapFile = fopen(filename, "wb");
-  if (!pcapFile) return;
-  pcap_hdr_s header = { 0xa1b2c3d4, 2, 4, 0, 0, 65535, 147 };
-  fwrite(&header, sizeof(header), 1, pcapFile);
+bool SnoopManager::start(const std::string& filename) {
+  pcapFile = fopen(filename.c_str(), "wb");
+  if (!pcapFile) return false;
+  writePcapHeader();
   seenEvents.clear();
   eventCount = 0;
   capturing = true;
+  return true;
 }
 
-void SnoopManager::stopCapture() {
+void SnoopManager::stop() {
   capturing = false;
   if (pcapFile) {
     fclose(pcapFile);
     pcapFile = nullptr;
   }
+}
+
+void SnoopManager::writePcapHeader() {
+  pcap_hdr_s header = { 0xa1b2c3d4, 2, 4, 0, 0, 65535, 147 };
+  fwrite(&header, sizeof(header), 1, pcapFile);
 }
 
 void SnoopManager::scrape() {
@@ -104,7 +83,7 @@ void SnoopManager::scrape() {
           g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)((char*)val + k * 144));
         }
       }
-      if (val > 0x80000000 && val < 0x8fffffff && (val % 8 == 0)) {
+      if (val >= 0x80000000 && val < 0x8fffffff && (val % 8 == 0)) {
         for (int offset = 0; offset < 600; offset += 4) {
           char* name = (char*)val + offset;
           if (name[0] >= 32 && name[0] <= 126 && name[1] >= 32 && name[1] <= 126) {
@@ -196,7 +175,7 @@ void SnoopManager::writeEvent(SnoopEvent* ev, const char* name, int direction) {
   memset(&snoopHdr, 0, sizeof(snoopHdr));
   snoopHdr.version = 1;
   snoopHdr.direction = direction;
-  strncpy(snoopHdr.interfaceName, name, 31);
+  strncpy(snoopHdr.event_type, name, 31);
   uint32_t len = ((uint32_t*)ev)[12];
   if (len > 10000) len = 0;
 
@@ -207,57 +186,76 @@ void SnoopManager::writeEvent(SnoopEvent* ev, const char* name, int direction) {
   fflush(pcapFile);
 }
 
-class Connection {
-public:
-  Connection(int fd, SnoopManager& mgr) : fd(fd), mgr(mgr) {}
-  void run() {
-    char buf[1024];
-    while (true) {
-      int n = read(fd, buf, 1023);
-      if (n <= 0) break;
-      buf[n] = 0;
-      if (strncmp(buf, "START", 5) == 0) {
-        char* file = strchr(buf, ' ');
+FileDescriptor::~FileDescriptor() {}
+
+TelnetFD::TelnetFD(int sockID, SnoopManager& mgr, ConnectionManager& conn) : snoopMgr(mgr), connMgr(conn) {
+    fileDescriptor = sockID;
+}
+TelnetFD::~TelnetFD() { close(fileDescriptor); }
+char FileDescriptor::buffer[10240];
+
+void TelnetFD::process() {
+    int n = read(fileDescriptor, buffer, 10239);
+    if (n <= 0) { connMgr.remove(this); delete this; return; }
+    buffer[n] = 0;
+    if (strncmp(buffer, "START", 5) == 0) {
+        char* file = strchr(buffer, ' ');
         if (file) {
-          while (*file == ' ') file++;
-          char* end = strchr(file, '\r');
-          if (!end) end = strchr(file, '\n');
-          if (end) *end = 0;
-          mgr.startCapture(file);
-          dprintf(fd, "OK Capture started to %s\n", file);
+            while (*file == ' ') file++;
+            char* end = strchr(file, '\r');
+            if (!end) end = strchr(file, '\n');
+            if (end) *end = 0;
+            snoopMgr.start(file);
+            dprintf(fileDescriptor, "OK Capture started to %s\n", file);
         }
-      } else if (strncmp(buf, "STOP", 4) == 0) {
-        mgr.stopCapture();
-        dprintf(fd, "OK Capture stopped\n");
-      } else if (strncmp(buf, "STATUS", 6) == 0) {
-        dprintf(fd, "Capturing: %s, Events: %d\n", mgr.isCapturing() ? "YES" : "NO", mgr.getEventCount());
-      } else if (strncmp(buf, "QUIT", 4) == 0) {
-        break;
-      }
+    } else if (strncmp(buffer, "STOP", 4) == 0) {
+        snoopMgr.stop();
+        dprintf(fileDescriptor, "OK Capture stopped\n");
+    } else if (strncmp(buffer, "STATUS", 6) == 0) {
+        dprintf(fileDescriptor, "Capturing: %s, Events: %lu\n", snoopMgr.isActive() ? "YES" : "NO", (unsigned long)snoopMgr.getEventCount());
+    } else if (strncmp(buffer, "QUIT", 4) == 0) {
+        connMgr.remove(this); delete this;
     }
-    close(fd);
-  }
-private:
-  int fd;
-  SnoopManager& mgr;
-};
+}
+
+TelnetListener::TelnetListener(int port, SnoopManager& mgr, ConnectionManager& conn) : snoopMgr(mgr), connMgr(conn) {
+    fileDescriptor = socket(AF_INET, SOCK_STREAM, 0);
+    int one = 1;
+    setsockopt(fileDescriptor, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = INADDR_ANY;
+    bind(fileDescriptor, (struct sockaddr*)&addr, sizeof(addr));
+    listen(fileDescriptor, 5);
+}
+void TelnetListener::process() {
+    int clientFd = accept(fileDescriptor, NULL, NULL);
+    if (clientFd >= 0) connMgr.add(new TelnetFD(clientFd, snoopMgr, connMgr));
+}
+
+ConnectionManager::ConnectionManager() { FD_ZERO(&storedFDSet); }
+void ConnectionManager::add(FileDescriptor* fd) { fds.insert(fd); FD_SET(fd->fileDescriptor, &storedFDSet); }
+void ConnectionManager::remove(FileDescriptor* fd) { fds.erase(fd); FD_CLR(fd->fileDescriptor, &storedFDSet); }
+void ConnectionManager::process() {
+    fd_set readSet = storedFDSet;
+    struct timeval tv = {0, 100000}; // 100ms
+    int maxFd = 0;
+    for (auto f : fds) if (f->fileDescriptor > maxFd) maxFd = f->fileDescriptor;
+    if (select(maxFd + 1, &readSet, NULL, NULL, &tv) > 0) {
+        std::vector<FileDescriptor*> currentFds(fds.begin(), fds.end());
+        for (auto f : currentFds) if (f->isReadable(&readSet)) f->process();
+    }
+}
 
 int main() {
   SnoopManager mgr;
   if (!mgr.attach()) return 1;
-
-  int serverFd = socket(AF_INET, SOCK_STREAM, 0);
-  int one = 1;
-  setsockopt(serverFd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-  struct sockaddr_in addr;
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(9999);
-  addr.sin_addr.s_addr = INADDR_ANY;
-  bind(serverFd, (struct sockaddr*)&addr, sizeof(addr));
-  listen(serverFd, 5);
+  ConnectionManager conn;
+  TelnetListener* listener = new TelnetListener(9999, mgr, conn);
+  conn.add(listener);
 
   LOG_INFO("Snoop Terminal ready on port 9999");
-
   std::thread scraperThread([&]() {
     while (true) {
       mgr.scrape();
@@ -265,15 +263,6 @@ int main() {
     }
   });
 
-  while (true) {
-    int clientFd = accept(serverFd, NULL, NULL);
-    if (clientFd >= 0) {
-      std::thread([&, clientFd]() {
-        Connection conn(clientFd, mgr);
-        conn.run();
-      }).detach();
-    }
-  }
-
+  while (true) conn.process();
   return 0;
 }

@@ -13,7 +13,7 @@ LIBS=-lpthread
 SRCS=sleeSnoop.cc
 OBJS=$(SRCS:.cc=.o)
 
-CXXFLAGS += -Wall -O2 -I. -I$(NCC_SDK_HOME)/include
+CXXFLAGS += -Wall -O2 -std=c++11 -I. -I$(NCC_SDK_HOME)/include
 
 $(SUBSYSTEM): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS)
