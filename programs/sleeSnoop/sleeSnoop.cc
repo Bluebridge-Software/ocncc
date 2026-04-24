@@ -26,6 +26,7 @@ char FileDescriptor::buffer[10240];
 #define LOG_INFO(fmt, ...)  printf("[INFO] " fmt "\n", ##__VA_ARGS__)
 
 static SnoopInterfaceInstance* g_firstInterface = NULL;
+static SnoopApplicationInstance* g_firstAppInst = NULL;
 
 /******************************************************************************
  * ConnectionManager
@@ -89,15 +90,12 @@ bool SnoopManager::attach() {
               LOG_INFO("Found identifier '%s' at offset 0x%lx (Address %p)", targets[t], (long)i, (void*)nameAddr);
               
               uintptr_t* rootPtrs = (uintptr_t*)addr;
-              // search SleeRoot for pointers to this object
               for (int offset = 0; offset < 600; offset += 4) {
                   uintptr_t objStart = nameAddr - offset;
                   for (int j = 0; j < 1024; j++) {
                       if (rootPtrs[j] == objStart) {
                           LOG_INFO("IDENTIFIED SleeRoot offset 0x%lx -> %p", (long)j*8, (void*)objStart);
-                          // 0x2a0 is firstInterfaceInstance
                           if (j*8 == 0x2a0) g_firstInterface = (SnoopInterfaceInstance*)objStart;
-                          // 0x268 is firstApplicationInstance
                           if (j*8 == 0x268) g_firstAppInst = (SnoopApplicationInstance*)objStart;
                       }
                   }
@@ -106,7 +104,6 @@ bool SnoopManager::attach() {
       }
   }
 
-  // Fallback: if we didn't find them by name, use the known offsets from the SleeRoot dump
   uintptr_t* rootPtrs = (uintptr_t*)addr;
   if (!g_firstInterface && (rootPtrs[0x2a0/8] & 0x80000000)) {
       g_firstInterface = (SnoopInterfaceInstance*)rootPtrs[0x2a0/8];
@@ -149,24 +146,14 @@ void SnoopManager::writePcapHeader() {
   fwrite(&header, sizeof(header), 1, pcapFile);
 }
 
-static SnoopApplicationInstance* g_firstAppInst = NULL;
-
 void SnoopManager::scrape() {
   if (!capturing || (!g_firstInterface && !g_firstAppInst)) return;
   static int eventListOffset = -1;
 
-  // 1. Scan Interface Instances
   if (g_firstInterface) {
     for (int i = 0; i < 200; i++) {
       SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 560);
       if ((uintptr_t)ii < 0x80000000 || (uintptr_t)ii > 0x90000000) break;
-      
-      // Heuristic: skip if name is empty or looks like garbage
-      if (((char*)ii)[100] == 0 && ((char*)ii)[101] == 0) {
-          // But wait, the name is at offset ~460.
-          // Let's just try to find the event list.
-      }
-      
       if (eventListOffset == -1) {
           uintptr_t* p = (uintptr_t*)ii;
           for (int j = 1; j < 40; j++) {
@@ -177,7 +164,6 @@ void SnoopManager::scrape() {
           }
       }
       if (eventListOffset == -1) continue;
-
       SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + eventListOffset);
       SnoopEvent *ev = el->list.headElement.next;
       int evCount = 0;
@@ -198,12 +184,11 @@ void SnoopManager::scrape() {
     }
   }
 
-  // 2. Scan Application Instances (Stride for apps is usually different, let's guess 560 too or check)
   if (g_firstAppInst) {
       for (int i = 0; i < 200; i++) {
           SnoopApplicationInstance* ai = (SnoopApplicationInstance*)((char*)g_firstAppInst + i * 560);
           if ((uintptr_t)ai < 0x80000000 || (uintptr_t)ai > 0x90000000) break;
-          
+          if (eventListOffset == -1) continue;
           SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ai + eventListOffset);
           SnoopEvent *ev = el->list.headElement.next;
           int evCount = 0;
