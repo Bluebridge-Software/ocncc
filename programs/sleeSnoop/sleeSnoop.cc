@@ -107,25 +107,10 @@ void SnoopManager::scrape() {
       }
     }
     
-    LOG_INFO("Deep scanning 100MB SHM for protocol payloads...");
+    LOG_INFO("Scanning SHM for 'beServer' string...");
     for (long i = 0; i < 12500000; i++) {
-        const char* s = (const char*)&p[i];
-        if (strncasecmp(s, "Escher", 6) == 0) {
-            LOG_INFO("Found 'Escher' payload at offset 0x%lx: %.32s", (long)i*8, s);
-            // Backtrack to find possible event header (vtable or list pointer)
-            for (int j = 1; j < 100; j++) {
-                uintptr_t* head = &p[i-j];
-                if ((uintptr_t)head[1] >= 0x80000000 && (uintptr_t)head[1] <= 0x80001000) {
-                    LOG_INFO("Likely event header at %p (Offset 0x%lx)", head, (long)((char*)head - (char*)root));
-                    for (int k = 0; k < 60; k++) {
-                        uint32_t val = ((uint32_t*)head)[k];
-                        if (val > 0 && val < 65535) {
-                            LOG_INFO("  Offset %d: %u (0x%x)", k*4, val, val);
-                        }
-                    }
-                    break;
-                }
-            }
+        if (memcmp(&p[i], "beServer", 8) == 0) {
+            LOG_INFO("Found 'beServer' at offset 0x%lx", (long)i*8);
         }
     }
   }
