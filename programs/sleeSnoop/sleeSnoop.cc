@@ -104,7 +104,10 @@ void SnoopManager::scrape() {
             }
           }
         }
-    LOG_INFO("Identifying Escher-related descriptors...");
+        }
+      }
+    }
+  }
     std::set<uintptr_t> escherDescriptors;
     char* cp = (char*)root;
     for (long i = 0; i < 100000000 - 32; i++) {
