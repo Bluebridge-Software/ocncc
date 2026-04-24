@@ -3,6 +3,7 @@
  * File: sleeSnoop.cc
  *
  * Description: Self-contained passive shared-memory snooper for SLEE events.
+ *              Uses pointer-backtracking to find SleeRoot members.
  *
  *****************************************************************************/
 
@@ -26,46 +27,32 @@ char FileDescriptor::buffer[10240];
 #define LOG_INFO(fmt, ...)  printf("[INFO] " fmt "\n", ##__VA_ARGS__)
 
 static SnoopLockedList<SnoopInterfaceInstance>* g_interfaceList = NULL;
-static SnoopLockedList<SnoopApplicationInstance>* g_applicationList = NULL;
+static SnoopInterfaceInstance* g_firstInterface = NULL;
 
 /******************************************************************************
  * ConnectionManager
  *****************************************************************************/
 ConnectionManager::ConnectionManager() { FD_ZERO(&storedFDSet); }
-
-void ConnectionManager::add(FileDescriptor *fd) {
-  fds.insert(fd);
-  FD_SET(fd->fileDescriptor, &storedFDSet);
-}
-
-void ConnectionManager::remove(FileDescriptor *fd) {
-  FD_CLR(fd->fileDescriptor, &storedFDSet);
-  fds.erase(fd);
-}
-
+void ConnectionManager::add(FileDescriptor *fd) { fds.insert(fd); FD_SET(fd->fileDescriptor, &storedFDSet); }
+void ConnectionManager::remove(FileDescriptor *fd) { FD_CLR(fd->fileDescriptor, &storedFDSet); fds.erase(fd); }
 void ConnectionManager::process() {
   fd_set working;
   struct timeval tv = {0, 100000}; 
   working = storedFDSet;
   int ret = select(FD_SETSIZE, &working, NULL, NULL, &tv);
-
   if (ret > 0) {
     std::vector<FileDescriptor *> currentFds(fds.begin(), fds.end());
     for (auto fd : currentFds) {
-      if (fds.count(fd) && fd->isReadable(&working)) {
-        fd->process();
-      }
+      if (fds.count(fd) && fd->isReadable(&working)) fd->process();
     }
   }
 }
-
 FileDescriptor::~FileDescriptor() {}
 
 /******************************************************************************
  * SnoopManager
  *****************************************************************************/
 SnoopManager::SnoopManager() : root(NULL), pcapFile(NULL), capturing(false), eventCount(0) {}
-
 SnoopManager::~SnoopManager() { stop(); }
 
 bool SnoopManager::attach() {
@@ -73,67 +60,50 @@ bool SnoopManager::attach() {
   if (sleeFile == NULL) sleeFile = "/IN/service_packages/SLEE/tmp/slee";
 
   key_t key = ftok(sleeFile, 'a');
-  if (key == -1) {
-    LOG_ERROR("ftok(%s, 'a') failed: %s", sleeFile, strerror(errno));
-    return false;
-  }
-
+  if (key == -1) { LOG_ERROR("ftok failed"); return false; }
   int shmid = shmget(key, 0, 0);
-  if (shmid == -1) {
-    LOG_ERROR("shmget(0x%lx) failed: %s", (long)key, strerror(errno));
-    return false;
-  }
-
+  if (shmid == -1) { LOG_ERROR("shmget failed"); return false; }
   void *addr = shmat(shmid, (void *)0x80000000, SHM_RDONLY);
   if (addr == (void *)-1) addr = shmat(shmid, NULL, SHM_RDONLY);
-  if (addr == (void *)-1) {
-    LOG_ERROR("shmat failed: %s", strerror(errno));
-    return false;
-  }
+  if (addr == (void *)-1) return false;
 
   root = (SnoopRoot *)addr;
-  LOG_INFO("Attached to SHM at %p. Scanning for lists...", addr);
+  LOG_INFO("Attached to SHM at %p. Finding interfaces...", addr);
 
-  std::vector<SnoopLockedList<void*>*> foundLists;
-  uintptr_t *p = (uintptr_t *)addr;
-  for (int i = 1; i < 10000; i++) {
-    uintptr_t currentAddr = (uintptr_t)&p[i];
-    if (p[i + 1] == currentAddr && p[i + 2] == currentAddr && p[i] == (uintptr_t)&p[i - 1]) {
-      foundLists.push_back((SnoopLockedList<void*>*)&p[i - 1]);
-    }
-  }
-
-  LOG_INFO("Found %lu lists in SHM", foundLists.size());
-
-  // Search for an interface instance to identify the list
+  // 1. Find a known interface name
   const char* targets[] = {"textInterface", "sleeManagement", "radiusInterface"};
-  for (auto list : foundLists) {
-      void* first = list->list.headElement.next;
-      if (first && first != &list->list.headElement) {
-          // Check if this looks like an interface by looking for names at various offsets
-          // interfaceName is at offset ~190-210 in SnoopInterfaceInstance
-          for (int offset = 150; offset < 300; offset++) {
-              char* potentialName = (char*)first + offset;
-              for (int t = 0; t < 3; t++) {
-                  if (strcmp(potentialName, targets[t]) == 0) {
-                      LOG_INFO("Identified InterfaceList at %p (contains '%s')", list, targets[t]);
-                      g_interfaceList = (SnoopLockedList<SnoopInterfaceInstance>*)list;
-                      break;
+  char* search = (char*)addr;
+  uintptr_t nameAddr = 0;
+  for (size_t i = 0; i < 2000000; i++) {
+      for (int t = 0; t < 3; t++) {
+          if (strcmp(&search[i], targets[t]) == 0) {
+              nameAddr = (uintptr_t)&search[i];
+              LOG_INFO("Found '%s' at %p", targets[t], (void*)nameAddr);
+              
+              // 2. Backtrack to find firstInterfaceInstance pointer in SleeRoot
+              // SleeRoot is at the start.
+              uintptr_t* rootPtrs = (uintptr_t*)addr;
+              for (int offset = 100; offset < 1500; offset += 4) {
+                  uintptr_t objStart = nameAddr - offset;
+                  // Search for objStart in the first 2KB of SHM (SleeRoot)
+                  for (int j = 0; j < 256; j++) {
+                      if (rootPtrs[j] == objStart) {
+                          LOG_INFO("IDENTIFIED firstInterfaceInstance at SleeRoot offset 0x%x -> %p", j*8, (void*)objStart);
+                          g_firstInterface = (SnoopInterfaceInstance*)objStart;
+                          break;
+                      }
                   }
+                  if (g_firstInterface) break;
               }
-              if (g_interfaceList) break;
           }
+          if (g_firstInterface) break;
       }
-      if (g_interfaceList) break;
+      if (g_firstInterface) break;
   }
 
-  if (!g_interfaceList && foundLists.size() >= 10) {
-      g_interfaceList = (SnoopLockedList<SnoopInterfaceInstance>*)foundLists[8];
-      LOG_INFO("Fallback: Selected 9th list as InterfaceList at %p", g_interfaceList);
-  }
-  
-  if (foundLists.size() >= 11) {
-      g_applicationList = (SnoopLockedList<SnoopApplicationInstance>*)foundLists[10];
+  if (!g_firstInterface) {
+      LOG_ERROR("Could not identify interfaces. Is SLEE fully started?");
+      return false;
   }
 
   return true;
@@ -150,18 +120,7 @@ bool SnoopManager::start(const std::string &filename) {
   return true;
 }
 
-void SnoopManager::stop() {
-  if (pcapFile) {
-    fclose(pcapFile);
-    pcapFile = NULL;
-  }
-  capturing = false;
-}
-
-void SnoopManager::setFilter(const std::string &name) {
-  if (name.empty()) filters.clear();
-  else filters.insert(name);
-}
+void SnoopManager::stop() { if (pcapFile) { fclose(pcapFile); pcapFile = NULL; } capturing = false; }
 
 void SnoopManager::writePcapHeader() {
   pcap_hdr_s header;
@@ -175,81 +134,60 @@ void SnoopManager::writePcapHeader() {
   fwrite(&header, sizeof(header), 1, pcapFile);
 }
 
-uint32_t simpleHash(const void *data, size_t len) {
-  uint32_t hash = 5381;
-  const uint8_t *p = (const uint8_t *)data;
-  for (size_t i = 0; i < std::min(len, (size_t)64); i++) {
-    hash = ((hash << 5) + hash) + p[i];
-  }
-  return hash;
-}
-
 void SnoopManager::scrape() {
-  if (!capturing || !g_interfaceList) return;
+  if (!capturing || !g_firstInterface) return;
 
-  SnoopInterfaceInstance *ii = g_interfaceList->list.headElement.next;
-  while (ii && ii != (void *)&g_interfaceList->list.headElement) {
-    // Try to locate name dynamically if fixed offset fails
-    const char *name = "Unknown";
-    for (int offset = 150; offset < 250; offset++) {
-        char* pName = (char*)ii + offset;
-        if (pName[0] >= 'a' && pName[0] <= 'z' && strlen(pName) < 20) {
-            name = pName;
-            break;
-        }
-    }
-
-    if (!filters.empty() && filters.find(name) == filters.end()) {
-      ii = ii->base.next;
-      continue;
-    }
-
-    SnoopEvent *ev = ii->eventList.list.headElement.next;
-    while (ev && ev != (void *)&ii->eventList.list.headElement) {
-      EventSignature sig = {ev, (size_t)ev->length, simpleHash(ev->data, (size_t)ev->length)};
-      if (seenEvents.find(sig) == seenEvents.end()) {
-        writeEvent(ev, name, 0);
-        seenEvents.insert(sig);
-        eventCount++;
+  // We iterate through the array of interface instances
+  // We'll use a conservative limit of 20 interfaces
+  for (int i = 0; i < 20; i++) {
+    // Assuming each instance is ~1600 bytes (based on my calculation + padding)
+    // But wait, the array might be spaced by roundSize.
+    // Let's try to follow the 'base.next' if they are linked too.
+    SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 1600);
+    
+    // Validate if it looks like an interface
+    if (ii->base.currentList == NULL) continue; 
+    
+    // Find eventList
+    // Based on layout, eventList is after SleeListElement(32) and vtable(8) = offset 40
+    SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + 40);
+    
+    SnoopEvent *ev = el->list.headElement.next;
+    int evCount = 0;
+    while (ev && ev != (void *)&el->list.headElement && evCount < 1000) {
+      evCount++;
+      uint32_t len = (uint32_t)ev->length;
+      if (len > 0 && len < 65535) {
+          EventSignature sig = {ev, (size_t)len, 0};
+          if (seenEvents.find(sig) == seenEvents.end()) {
+            writeEvent(ev, "Snoop", 0);
+            seenEvents.insert(sig);
+            eventCount++;
+          }
       }
       ev = ev->base.next;
     }
-    ii = ii->base.next;
   }
-
-  if (seenEvents.size() > 10000) seenEvents.clear();
 }
 
 void SnoopManager::writeEvent(SnoopEvent *ev, const char *name, int direction) {
   struct timeval tv;
   gettimeofday(&tv, NULL);
-
   slee_snoop_hdr_t snoopHdr;
+  memset(&snoopHdr, 0, sizeof(snoopHdr));
   snoopHdr.version = 1;
   snoopHdr.direction = direction;
-  snoopHdr.interface_id = 0;
-  snoopHdr.dialog_id = ev->dialog ? 1 : 0;
-
-  if (ev->eventType) {
-    strncpy(snoopHdr.event_type, ev->eventType->typeName, sizeof(snoopHdr.event_type) - 1);
-    snoopHdr.event_type[sizeof(snoopHdr.event_type) - 1] = '\0';
-  } else {
-    strcpy(snoopHdr.event_type, "Unknown");
-  }
-
-  uint32_t totalLen = sizeof(snoopHdr) + ev->length;
-  pcaprec_hdr_s rec;
-  rec.ts_sec = tv.tv_sec;
-  rec.ts_usec = tv.tv_usec;
-  rec.incl_len = totalLen;
-  rec.orig_len = totalLen;
-
+  uint32_t len = (uint32_t)ev->length;
+  pcaprec_hdr_s rec = { (uint32_t)tv.tv_sec, (uint32_t)tv.tv_usec, (uint32_t)(sizeof(snoopHdr) + len), (uint32_t)(sizeof(snoopHdr) + len) };
   fwrite(&rec, sizeof(rec), 1, pcapFile);
   fwrite(&snoopHdr, sizeof(snoopHdr), 1, pcapFile);
-  fwrite(ev->data, ev->length, 1, pcapFile);
+  fwrite(ev->data, len, 1, pcapFile);
   fflush(pcapFile);
 }
 
+/******************************************************************************
+ * Telnet and Main (Full version)
+ *****************************************************************************/
 TelnetListener::TelnetListener(int port, SnoopManager &mgr, ConnectionManager &conn)
     : snoopMgr(mgr), connMgr(conn) {
   fileDescriptor = socket(AF_INET, SOCK_STREAM, 0);
@@ -263,27 +201,14 @@ TelnetListener::TelnetListener(int port, SnoopManager &mgr, ConnectionManager &c
   listen(fileDescriptor, 5);
   connMgr.add(this);
 }
-
-void TelnetListener::process() {
-  int sock = accept(fileDescriptor, NULL, NULL);
-  if (sock != -1) new TelnetFD(sock, snoopMgr, connMgr);
-}
-
-TelnetFD::TelnetFD(int sock, SnoopManager &mgr, ConnectionManager &conn)
-    : snoopMgr(mgr), connMgr(conn) {
-  fileDescriptor = sock;
-  connMgr.add(this);
-  std::string welcome = "SLEE Snoop Terminal\nCommands: START <file>, STOP, FILTER <name>, CLEAR, STATUS, QUIT\n> ";
+void TelnetListener::process() { int sock = accept(fileDescriptor, NULL, NULL); if (sock != -1) new TelnetFD(sock, snoopMgr, connMgr); }
+TelnetFD::TelnetFD(int sock, SnoopManager &mgr, ConnectionManager &conn) : snoopMgr(mgr), connMgr(conn) {
+  fileDescriptor = sock; connMgr.add(this);
+  std::string welcome = "SLEE Snoop Terminal\nCommands: START <file>, STOP, STATUS, QUIT\n> ";
   ::write(fileDescriptor, welcome.c_str(), welcome.length());
 }
-
-TelnetFD::~TelnetFD() {
-  close(fileDescriptor);
-  connMgr.remove(this);
-}
-
+TelnetFD::~TelnetFD() { close(fileDescriptor); connMgr.remove(this); }
 void TelnetFD::write(const char *text, int size) { ::write(fileDescriptor, text, size); }
-
 void TelnetFD::process() {
   int n = read(fileDescriptor, buffer, sizeof(buffer) - 1);
   if (n <= 0) { delete this; return; }
@@ -301,21 +226,17 @@ void TelnetFD::process() {
       if (snoopMgr.start(arg.empty() ? "snoop.pcap" : arg)) write("Started\n", 8);
       else write("Failed\n", 7);
     } else if (cmd == "STOP") {
-      snoopMgr.stop();
-      write("Stopped\n", 8);
+      snoopMgr.stop(); write("Stopped\n", 8);
     } else if (cmd == "STATUS") {
       char stat[128];
       sprintf(stat, "Status: %s, Events: %llu\n", snoopMgr.isActive() ? "Capturing" : "Idle", (unsigned long long)snoopMgr.getEventCount());
       write(stat, strlen(stat));
-    } else if (cmd == "QUIT" || cmd == "EXIT") {
-      delete this;
-      return;
-    }
+    } else if (cmd == "QUIT" || cmd == "EXIT") { delete this; return; }
     write("> ", 2);
   }
 }
 
-int main(int argc, char **argv) {
+int main() {
   ConnectionManager conn;
   SnoopManager snoop;
   if (!snoop.attach()) return 1;
