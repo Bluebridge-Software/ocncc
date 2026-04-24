@@ -220,28 +220,59 @@ async function getSubscriberByCli(db, redis, cli, opts = {}) {
 
     // ---- Database read -----------------------------------------------------
     const rows = await db.executeQuery(
-        `SELECT 
-            car.id AS id,
-            car.cli AS cli,
-            car.service_state AS service_state,
-            car.profile AS profile,
-            caar.account AS account,
-            caar.wallet_type AS wallet_type,
-            ca.be_acct_id AS wallet_id,
-            ca.be_acct_engine_id AS billing_engine_id,
-            cat.id AS account_type_id,
-            cat.name AS account_type_name,
-            ac.name AS customer_name
-        FROM ccs_acct_reference car,
-            ccs_acct_acct_references caar,
-            ccs_acct_type cat,
-            acs_customer ac,
-            ccs_acct ca
-        WHERE car.cli = :cli
-            AND car.id = caar.acct_reference
-            AND ac.id = car.acs_cust_id
-            AND cat.id = caar.account_type
-            AND ca.account_number = caar.account`,
+        `SELECT
+                car.id as customer_reference_id,
+                car.private_secret as private_secret,
+                car.profile as profile,
+                car.auth_hash_fn_id as auth_hash_fn_id,
+                car.acs_cust_id as customer_id,
+                ac.name as customer_name,
+                cwt.id as wallet_type_id,
+                cwt.name as wallet_type_name,
+                caar.account as account,
+                caar.account_type as account_type,
+                cat.name as account_type_name,
+                ca.charging_engine_id as charging_engine_id,
+                ca.external_wallet_reference as external_wallet_reference,
+                cd.domain_type_id as charging_domain_type_id,
+                cdt.type as charging_domain_type_name,
+                to_char(car.change_date, 'YYYYMMDDHH24MISS') as change_date,
+                NVL(ca.tracker_engine_id,0) as tracker_engine_id,
+                NVL(ca.currency,0) as currency,
+                NVL(cur.code,'000') as currency_code,
+                NVL(cur.big_symbol,'*') as currency_big_symbol,
+                NVL(cur.little_symbol,'*') as currency_little_symbol,
+                NVL(cur.separator,'.') as currency_separator,
+                NVL(cur.name,'*') as currency_name,
+                NVL(ab.state,'A') as account_batch_state
+            FROM
+                acs_customer ac,
+                ccs_acct_reference car,
+                ccs_wallet_type cwt,
+                ccs_acct_acct_references caar,
+                ccs_acct ca,
+                ccs_acct_type cat,
+                ccs_currency cur,
+                ccs_domain cd,
+                ccs_domain td,
+                ccs_domain_type cdt,
+                ccs_account_batch ab
+            WHERE
+                car.cli = :cli AND
+                cwt.acs_cust_id = car.acs_cust_id AND
+                caar.acs_cust_id = car.acs_cust_id AND
+                ca.acs_cust_id = car.acs_cust_id AND
+                ac.id = car.acs_cust_id AND
+                cwt.default_type = 'Y' AND
+                caar.acct_reference = car.id AND
+                caar.account_type = cat.id AND
+                caar.wallet_type = cwt.id AND
+                cur.id = ca.currency AND
+                ca.be_acct_id = caar.account AND
+                ca.charging_engine_id = cd.domain_id AND
+                cdt.domain_type_id = cd.domain_type_id AND
+                ca.tracker_engine_id = td.domain_id(+) AND
+                car.account_batch_id = ab.id (+)`,
         { cli }
     );
 
@@ -258,16 +289,30 @@ async function getSubscriberByCli(db, redis, cli, opts = {}) {
             : (typeof row.PROFILE === 'string' ? row.PROFILE : null);
 
         const result = {
-            id: row.ID,
-            cli: row.CLI,
-            service_state: row.SERVICE_STATE,
-            wallet_type: row.WALLET_TYPE,
-            wallet_id: row.WALLET_ID,
-            billing_engine_id: row.BILLING_ENGINE_ID,
-            account_type_id: row.ACCOUNT_TYPE_ID,
-            account_type_name: row.ACCOUNT_TYPE,
+            customer_reference_id: row.CUSTOMER_REFERENCE_ID,
+            private_secret: row.PRIVATE_SECRET,
+            profile: profileBase64,  // always a base64 string from here onwards
+            auth_hash_fn_id: row.AUTH_HASH_FN_ID,
+            customer_id: row.CUSTOMER_ID,
             customer_name: row.CUSTOMER_NAME,
-            profile: profileBase64,   // always a base64 string from here onwards
+            wallet_type_id: row.WALLET_TYPE_ID,
+            wallet_type_name: row.WALLET_TYPE_NAME,
+            account: row.ACCOUNT,
+            account_type: row.ACCOUNT_TYPE,
+            account_type_name: row.ACCOUNT_TYPE_NAME,
+            charging_engine_id: row.CHARGING_ENGINE_ID,
+            external_wallet_reference: row.EXTERNAL_WALLET_REFERENCE,
+            charging_domain_type_id: row.CHARGING_DOMAIN_TYPE_ID,
+            charging_domain_type_name: row.CHARGING_DOMAIN_TYPE_NAME,
+            change_date: row.CHANGE_DATE,
+            tracker_engine_id: (row.TRACKER_ENGINE_ID === 0) ? null : row.TRACKER_ENGINE_ID,
+            currency: (row.CURRENCY === 0) ? null : row.CURRENCY,
+            currency_big_symbol: (row.CURRENCY_BIG_SYMBOL === '*') ? null : row.CURRENCY_BIG_SYMBOL,
+            currency_little_symbol: (row.CURRENCY_LITTLE_SYMBOL === '*') ? null : row.CURRENCY_LITTLE_SYMBOL,
+            currency_separator: (row.CURRENCY_SEPARATOR === '.') ? null : row.CURRENCY_SEPARATOR,
+            currency_name: (row.CURRENCY_NAME === '*') ? null : row.CURRENCY_NAME,
+            currency_code: (row.CURRENCY_CODE === '000') ? null : row.CURRENCY_CODE,
+            account_batch_state: row.ACCOUNT_BATCH_STATE,
         };
 
         if (decodeProfile && profileParser && profileBase64) {

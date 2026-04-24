@@ -21,6 +21,7 @@ const StatsTracker = require('./services/stats-tracker');
 const createRouter = require('./routes/api');
 const createDbGuard = require('./middleware/db-guard');
 const createDatabaseRouter = require('./routes/database-api');
+const createProfileRouter = require('./routes/profile-api');
 const buildSpec = require('./config/swagger-spec');
 const buildDatabaseSpec = require('./config/swagger-database-spec');
 const createAuthMiddleware = require('./middleware/auth');
@@ -267,6 +268,17 @@ app.use('/db', apiLimiter, authMiddleware, createDbGuard(() => dbReady), (req, r
     });
   }
   dbRouter(req, res, next);
+});
+
+const profileRouter = createProfileRouter(profileParser);
+app.use('/profile', apiLimiter, authMiddleware, createDbGuard(() => dbReady), (req, res, next) => {
+  if (!profileRouter) {
+    return res.status(503).json({
+      error: 'Database is disabled',
+      message: 'DATABASE_ENABLED=false in server configuration.',
+    });
+  }
+  profileRouter(req, res, next);
 });
 
 // ---------------------------------------------------------------------------

@@ -54,6 +54,7 @@ function createDatabaseRouter(db, profileParser, redis) {
             if (result.count === 0) {
                 return res.status(404).json({ message: 'Subscriber not found' });
             }
+            console.log("result", JSON.stringify(result));
             res.json(result);
         } catch (err) {
             console.error('[DB-API] GET /subscriber error:', err);
