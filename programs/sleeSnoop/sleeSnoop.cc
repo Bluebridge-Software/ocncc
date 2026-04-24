@@ -29,7 +29,7 @@ SnoopManager::~SnoopManager() { stop(); }
 bool SnoopManager::attach() {
   char* sleeFile = getenv("SLEE_FILE");
   if (!sleeFile) sleeFile = (char*)"/IN/service_packages/SLEE/tmp/slee";
-  key_t key = ftok(sleeFile, 'S');
+  key_t key = ftok(sleeFile, 'a');
   int shmid = shmget(key, 0, 0);
   if (shmid < 0) {
     LOG_ERROR("Could not find SHM segment (key 0x%08x). Error: %s. Is SLEE running?", key, strerror(errno));
