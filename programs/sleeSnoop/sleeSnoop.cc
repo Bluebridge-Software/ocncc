@@ -121,10 +121,10 @@ void SnoopManager::scrape() {
                     LOG_INFO("Found populated list! Head at 0x%lx, Size: %u, Next: 0x%lx", (long)i*8, size, (long)next);
                     g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)((char*)root + i*8 - 16));
                     
-                    if (i*8 == 0x608) {
-                        LOG_INFO("Dumping first event of list 0x608 (Address 0x%lx):", (long)next);
+                    if (next == 0x800006b0) {
+                        LOG_INFO("Dumping event 0x800006b0 (Known non-zero length):");
                         unsigned char* d = (unsigned char*)next;
-                        for (int j = 0; j < 128; j += 16) {
+                        for (int j = 0; j < 256; j += 16) {
                             printf("[DEBUG] %04x: ", j);
                             for (int k = 0; k < 16; k++) printf("%02x ", d[j+k]);
                             printf("\n");
