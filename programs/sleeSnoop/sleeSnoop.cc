@@ -146,17 +146,53 @@ void SnoopManager::writePcapHeader() {
   fwrite(&header, sizeof(header), 1, pcapFile);
 }
 
-void SnoopManager::scrape() {
-  if (!capturing || (!g_firstInterface && !g_firstAppInst)) return;
-  static int eventListOffset = -1;
+static std::vector<SnoopLockedList<SnoopEvent>*> g_globalLists;
 
-  // 1. Scan Interface Instances
+void SnoopManager::scrape() {
+  if (!capturing) return;
+
+  // 0. Find global lists once
+  if (g_globalLists.empty()) {
+      uintptr_t* p = (uintptr_t*)root;
+      for (int i = 0; i < 2000; i++) {
+          if (p[i] == (uintptr_t)&p[i] && p[i+1] == (uintptr_t)&p[i]) {
+              g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)&p[i-1]);
+          }
+      }
+      LOG_INFO("Found %lu global event lists", g_globalLists.size());
+  }
+
+  // 1. Scan Global Lists
+  for (auto el : g_globalLists) {
+      SnoopEvent *ev = el->list.headElement.next;
+      int evCount = 0;
+      while (ev && ev != (void *)&el->list.headElement && evCount < 200) {
+        evCount++;
+        if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
+        uint32_t len = (uint32_t)ev->length;
+        if (len < 65535) {
+            uint32_t h = 0;
+            if (len > 0) {
+                unsigned char* d = (unsigned char*)ev->data;
+                for(uint32_t k=0; k<len && k<64; k++) h = (h*31) + d[k];
+            }
+            EventSignature sig = {ev, (size_t)len, h};
+            if (seenEvents.find(sig) == seenEvents.end()) {
+              writeEvent(ev, "Global", 0);
+              seenEvents.insert(sig);
+              eventCount++;
+            }
+        }
+        ev = ev->base.next;
+      }
+  }
+
+  // 2. Scan Instance Lists
+  static int eventListOffset = -1;
   if (g_firstInterface) {
     for (int i = 0; i < 100; i++) {
       SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 560);
       if ((uintptr_t)ii < 0x80000000 || (uintptr_t)ii > 0x90000000) break;
-      
-      // Check if this slot has a printable name at offset 240
       char* name = (char*)ii + 240;
       if (name[0] < 32 || name[0] > 126) continue;
       
@@ -178,12 +214,12 @@ void SnoopManager::scrape() {
         evCount++;
         if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
         uint32_t len = (uint32_t)ev->length;
-        if (len > 0 && len < 65535) {
-            // Hash data for better deduplication
+        if (len < 65535) {
             uint32_t h = 0;
-            unsigned char* d = (unsigned char*)ev->data;
-            for(uint32_t k=0; k<len && k<64; k++) h = (h*31) + d[k];
-
+            if (len > 0) {
+                unsigned char* d = (unsigned char*)ev->data;
+                for(uint32_t k=0; k<len && k<64; k++) h = (h*31) + d[k];
+            }
             EventSignature sig = {ev, (size_t)len, h};
             if (seenEvents.find(sig) == seenEvents.end()) {
               writeEvent(ev, name, 0);
@@ -196,35 +232,34 @@ void SnoopManager::scrape() {
     }
   }
 
-  // 2. Scan Application Instances
   if (g_firstAppInst) {
-      for (int i = 0; i < 100; i++) {
-          SnoopApplicationInstance* ai = (SnoopApplicationInstance*)((char*)g_firstAppInst + i * 560);
-          if ((uintptr_t)ai < 0x80000000 || (uintptr_t)ai > 0x90000000) break;
-          
-          if (eventListOffset == -1) continue;
-          SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ai + eventListOffset);
-          SnoopEvent *ev = el->list.headElement.next;
-          int evCount = 0;
-          while (ev && ev != (void *)&el->list.headElement && evCount < 100) {
-            evCount++;
-            if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
-            uint32_t len = (uint32_t)ev->length;
-            if (len > 0 && len < 65535) {
-                uint32_t h = 0;
+    for (int i = 0; i < 100; i++) {
+      SnoopApplicationInstance* ai = (SnoopApplicationInstance*)((char*)g_firstAppInst + i * 560);
+      if ((uintptr_t)ai < 0x80000000 || (uintptr_t)ai > 0x90000000) break;
+      if (eventListOffset == -1) continue;
+      SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ai + eventListOffset);
+      SnoopEvent *ev = el->list.headElement.next;
+      int evCount = 0;
+      while (ev && ev != (void *)&el->list.headElement && evCount < 100) {
+        evCount++;
+        if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
+        uint32_t len = (uint32_t)ev->length;
+        if (len < 65535) {
+            uint32_t h = 0;
+            if (len > 0) {
                 unsigned char* d = (unsigned char*)ev->data;
                 for(uint32_t k=0; k<len && k<64; k++) h = (h*31) + d[k];
-
-                EventSignature sig = {ev, (size_t)len, h};
-                if (seenEvents.find(sig) == seenEvents.end()) {
-                  writeEvent(ev, "App", 0);
-                  seenEvents.insert(sig);
-                  eventCount++;
-                }
             }
-            ev = ev->base.next;
-          }
+            EventSignature sig = {ev, (size_t)len, h};
+            if (seenEvents.find(sig) == seenEvents.end()) {
+              writeEvent(ev, "App", 0);
+              seenEvents.insert(sig);
+              eventCount++;
+            }
+        }
+        ev = ev->base.next;
       }
+    }
   }
 }
 
