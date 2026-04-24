@@ -107,49 +107,15 @@ void SnoopManager::scrape() {
       }
     }
     
-    LOG_INFO("Scanning 100MB SHM for ALL events in ALL lists...");
-    g_globalLists.clear();
+    LOG_INFO("Scanning SHM for 'beProtocolClientEvent' instances...");
     for (long i = 0; i < 12500000; i++) {
-        uintptr_t next = p[i];
-        uintptr_t prev = p[i+1];
-        if (next >= 0x80000000 && next < 0x90000000 && 
-            prev >= 0x80000000 && prev < 0x90000000 && (next % 8 == 0)) {
-            
-            uintptr_t selfAddr = (uintptr_t)((char*)root + i * 8);
-            if (next != selfAddr && prev != selfAddr) {
-                // Potential list head or element.
-                // If it's a head, it points to elements that point back to IT.
-                // We'll just try to walk it as a head.
-                uintptr_t* head = &p[i];
-                uintptr_t* curr = (uintptr_t*)next;
-                int count = 0;
-                while (curr && curr != head && count < 1000) {
-                    count++;
-                    if ((uintptr_t)curr < 0x80000000 || (uintptr_t)curr > 0x8fffffff) break;
-                    
-                    uint32_t len = ((uint32_t*)curr)[12];
-                    if (len > 0 && len < 20000) {
-                        EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 };
-                        if (seenEvents.find(sig) == seenEvents.end()) {
-                            LOG_INFO("Found event at %p len %u", curr, len);
-                            unsigned char* d = (unsigned char*)curr;
-                            printf("[EVENT] %p: ", curr);
-                            for (int k = 0; k < 64; k++) printf("%02x ", d[k]);
-                            printf("\n");
-                            
-                            writeEvent((SnoopEvent*)curr, "Scanned", 0);
-                            seenEvents.insert(sig);
-                            eventCount++;
-                        }
-                    }
-                    
-                    // Try next
-                    uintptr_t n1 = curr[2];
-                    uintptr_t n2 = curr[4];
-                    if (n1 >= 0x80000000 && n1 < 0x90000000) curr = (uintptr_t*)n1;
-                    else if (n2 >= 0x80000000 && n2 < 0x90000000) curr = (uintptr_t*)n2;
-                    else break;
-                }
+        if (memcmp(&p[i], "beProtocolClientEvent", 21) == 0) {
+            LOG_INFO("Found 'beProtocolClientEvent' at offset 0x%lx", (long)i*8);
+            unsigned char* d = (unsigned char*)((char*)root + i*8 - 32);
+            for (int j = 0; j < 512; j += 16) {
+                printf("[DUMP] %04x: ", j);
+                for (int k = 0; k < 16; k++) printf("%02x ", d[j+k]);
+                printf("\n");
             }
         }
     }
