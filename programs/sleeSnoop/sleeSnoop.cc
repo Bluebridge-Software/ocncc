@@ -69,6 +69,12 @@ void SnoopManager::writePcapHeader() {
 }
 
 void SnoopManager::scrape() {
+  static bool firstScrape = true;
+  if (firstScrape && capturing) {
+      firstScrape = false;
+      LOG_INFO("Scrape loop active and capturing!");
+      fflush(stdout);
+  }
   if (!capturing) return;
 
   static bool mapped = false;
@@ -110,11 +116,13 @@ void SnoopManager::scrape() {
                             LOG_INFO("Potential length %u at uint32 offset %d (Value 0x%x)", len, k, len);
                         }
                     }
+                    fflush(stdout);
                     break;
                 }
             }
         }
     }
+    fflush(stdout);
   }
 
   // 1. Scan Global Lists
