@@ -155,7 +155,14 @@ void SnoopManager::scrape() {
   static bool mapped = false;
   if (!mapped) {
       mapped = true;
+      uintptr_t targetEvent = 0x802afd60;
       uintptr_t* p = (uintptr_t*)root;
+      LOG_INFO("Deep scanning first 1MB for pointers to event %p...", (void*)targetEvent);
+      for (int i = 0; i < 128000; i++) {
+          if (p[i] == targetEvent) {
+              LOG_INFO("Found pointer to event %p at address %p (Offset 0x%lx)", (void*)targetEvent, &p[i], (long)i*8);
+          }
+      }
       for (int i = 0; i < 2000; i++) {
           uintptr_t val = p[i];
           if (val >= 0x80000000 && val < 0x8fffffff && (val % 8 == 0)) {
