@@ -107,21 +107,27 @@ void SnoopManager::scrape() {
       }
     }
     
-    LOG_INFO("Scanning SHM for 'beServer' and 'beVWARS' instances...");
+    LOG_INFO("Scanning 100MB SHM for populated lists...");
     for (long i = 0; i < 12500000; i++) {
-        if (memcmp(&p[i], "beServer", 8) == 0 || memcmp(&p[i], "beVWARS", 7) == 0) {
-            LOG_INFO("Found interface string at offset 0x%lx", (long)i*8);
-            uintptr_t* inst = &p[i - 30]; // Backtrack to instance base
-            for (int k = 0; k < 100; k++) {
-                if (inst[k] == (uintptr_t)&inst[k] && inst[k+1] == (uintptr_t)&inst[k]) {
-                    LOG_INFO("  Found active list head at offset 0x%x (Relative to base)", k*8);
+        uintptr_t selfAddr = (uintptr_t)((char*)root + i * 8);
+        uintptr_t next = p[i];
+        uintptr_t prev = p[i+1];
+        if (next >= 0x80000000 && next < 0x90000000 && 
+            prev >= 0x80000000 && prev < 0x90000000) {
+            // Possible list head or element.
+            // A list head usually has next/prev pointing to elements that point back.
+            if (next != selfAddr && prev != selfAddr) {
+                // Potential populated list head!
+                // But wait, it could be an element. 
+                // A head usually has a size field before it.
+                uint32_t size = ((uint32_t*)root)[i*2 - 2];
+                if (size > 0 && size < 1000) {
+                    LOG_INFO("Found populated list! Head at 0x%lx, Size: %u, Next: 0x%lx", (long)i*8, size, (long)next);
                 }
             }
         }
-        if (p[i] == 0x2ce1c000) {
-            LOG_INFO("Found ESCH symbol at offset 0x%lx", (long)i*8);
-        }
     }
+    fflush(stdout);
   }
 
   // 1. Scan Global Lists
