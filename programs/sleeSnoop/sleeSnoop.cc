@@ -261,6 +261,17 @@ void SnoopManager::scrape() {
             }
             EventSignature sig = {ev, (size_t)len, h};
             if (seenEvents.find(sig) == seenEvents.end()) {
+              static bool firstDump = false;
+              if (!firstDump && len > 0) {
+                  firstDump = true;
+                  LOG_INFO("Dumping first event at %p:", ev);
+                  unsigned char* d = (unsigned char*)ev;
+                  for (int k = 0; k < 64; k += 16) {
+                      printf("[DEBUG] %04x: ", k);
+                      for (int j = 0; j < 16; j++) printf("%02x ", d[k+j]);
+                      printf("\n");
+                  }
+              }
               writeEvent(ev, name, 0);
               seenEvents.insert(sig);
               eventCount++;
