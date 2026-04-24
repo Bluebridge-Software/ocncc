@@ -715,7 +715,6 @@ function buildSpec(serverUrl, serverDescription) {
                   },
                   "BODY": {
                     "WALT": 12345,
-                    "WALR": "ACC001:1",
                     "BTYP": 2,
                     "BUNT": 1,
                     "UCUR": 840

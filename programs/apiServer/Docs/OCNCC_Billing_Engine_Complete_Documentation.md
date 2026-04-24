@@ -1159,7 +1159,7 @@ Extends an existing call reservation with additional credit.
   "TYPE": "SR  ",
   "HEAD": { "SVID": 1, "CMID": 2002 },
   "BODY": {
-    "WALT": 447700900123,
+    "WALT": 2,
     "CLI ": "447700900123",
     "DN  ": "442071234567",
     "CDAT": 1743123456,
