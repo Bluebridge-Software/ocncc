@@ -107,22 +107,20 @@ void SnoopManager::scrape() {
       }
     }
     
-    LOG_INFO("Scanning SHM for 'Escher' string...");
+    LOG_INFO("Scanning SHM for 'beVWARS' string...");
     for (long i = 0; i < 12500000; i++) {
-        if (memcmp(&p[i], "Escher", 6) == 0) {
-            LOG_INFO("Found 'Escher' at offset 0x%lx", (long)i*8);
-            for (int j = 1; j < 60; j++) {
+        if (memcmp(&p[i], "beVWARS", 7) == 0) {
+            LOG_INFO("Found 'beVWARS' at offset 0x%lx", (long)i*8);
+            for (int j = 1; j < 100; j++) {
                 uintptr_t* head = &p[i-j];
                 if ((uintptr_t)head[1] == 0x80000818) {
-                    LOG_INFO("Likely event header for 'Escher' at %p (Offset 0x%lx)", head, (long)((char*)head - (char*)root));
+                    LOG_INFO("Likely event header for 'beVWARS' at %p (Offset 0x%lx)", head, (long)((char*)head - (char*)root));
                     for (int k = 4; k < 40; k++) {
                         uint32_t len = ((uint32_t*)head)[k];
                         if (len > 0 && len < 10000) {
                             LOG_INFO("Potential length %u at uint32 offset %d (Value 0x%x)", len, k, len);
                         }
                     }
-                    fflush(stdout);
-                    break;
                 }
             }
         }
@@ -235,7 +233,7 @@ void TelnetFD::process() {
     int n = read(fileDescriptor, buffer, 10239);
     if (n <= 0) { connMgr.remove(this); delete this; return; }
     buffer[n] = 0;
-    if (strncmp(buffer, "START", 5) == 0) {
+    if (strncasecmp(buffer, "START", 5) == 0) {
         char* file = strchr(buffer, ' ');
         if (file) {
             while (*file == ' ') file++;
@@ -245,12 +243,12 @@ void TelnetFD::process() {
             snoopMgr.start(file);
             dprintf(fileDescriptor, "OK Capture started to %s\n", file);
         }
-    } else if (strncmp(buffer, "STOP", 4) == 0) {
+    } else if (strncasecmp(buffer, "STOP", 4) == 0) {
         snoopMgr.stop();
         dprintf(fileDescriptor, "OK Capture stopped\n");
-    } else if (strncmp(buffer, "STATUS", 6) == 0) {
+    } else if (strncasecmp(buffer, "STATUS", 6) == 0) {
         dprintf(fileDescriptor, "Capturing: %s, Events: %lu\n", snoopMgr.isActive() ? "YES" : "NO", (unsigned long)snoopMgr.getEventCount());
-    } else if (strncmp(buffer, "QUIT", 4) == 0) {
+    } else if (strncasecmp(buffer, "QUIT", 4) == 0) {
         connMgr.remove(this); delete this; return;
     }
     dprintf(fileDescriptor, "> ");
