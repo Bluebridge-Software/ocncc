@@ -114,6 +114,7 @@ void SnoopManager::scrape() {
       }
       EventSignature sig = { ev, (size_t)len, h };
       if (seenEvents.find(sig) == seenEvents.end()) {
+        LOG_DEBUG("Found Global event %p len %u", ev, len);
         writeEvent(ev, "Global", 0);
         seenEvents.insert(sig);
         eventCount++;
@@ -158,6 +159,7 @@ void SnoopManager::scrape() {
         }
         EventSignature sig = { ev, (size_t)len, h };
         if (seenEvents.find(sig) == seenEvents.end()) {
+          LOG_DEBUG("Found Instance event %p len %u on %s", ev, len, name);
           writeEvent(ev, name, 0);
           seenEvents.insert(sig);
           eventCount++;
@@ -190,6 +192,8 @@ FileDescriptor::~FileDescriptor() {}
 
 TelnetFD::TelnetFD(int sockID, SnoopManager& mgr, ConnectionManager& conn) : snoopMgr(mgr), connMgr(conn) {
     fileDescriptor = sockID;
+    LOG_INFO("New telnet connection from client %d", sockID);
+    dprintf(fileDescriptor, "Snoop Snoop Terminal Ready\n> ");
 }
 TelnetFD::~TelnetFD() { close(fileDescriptor); }
 char FileDescriptor::buffer[10240];
@@ -214,8 +218,9 @@ void TelnetFD::process() {
     } else if (strncmp(buffer, "STATUS", 6) == 0) {
         dprintf(fileDescriptor, "Capturing: %s, Events: %lu\n", snoopMgr.isActive() ? "YES" : "NO", (unsigned long)snoopMgr.getEventCount());
     } else if (strncmp(buffer, "QUIT", 4) == 0) {
-        connMgr.remove(this); delete this;
+        connMgr.remove(this); delete this; return;
     }
+    dprintf(fileDescriptor, "> ");
 }
 
 TelnetListener::TelnetListener(int port, SnoopManager& mgr, ConnectionManager& conn) : snoopMgr(mgr), connMgr(conn) {
