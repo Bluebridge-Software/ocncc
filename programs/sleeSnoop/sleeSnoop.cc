@@ -3,7 +3,6 @@
  * File: sleeSnoop.cc
  *
  * Description: Self-contained passive shared-memory snooper for SLEE events.
- *              Uses pointer-backtracking to find SleeRoot members.
  *
  *****************************************************************************/
 
@@ -26,7 +25,6 @@ char FileDescriptor::buffer[10240];
 #define LOG_ERROR(fmt, ...) printf("[ERROR] " fmt "\n", ##__VA_ARGS__)
 #define LOG_INFO(fmt, ...)  printf("[INFO] " fmt "\n", ##__VA_ARGS__)
 
-static SnoopLockedList<SnoopInterfaceInstance>* g_interfaceList = NULL;
 static SnoopInterfaceInstance* g_firstInterface = NULL;
 
 /******************************************************************************
@@ -68,7 +66,9 @@ bool SnoopManager::attach() {
   if (addr == (void *)-1) return false;
 
   root = (SnoopRoot *)addr;
-  LOG_INFO("Attached to SHM at %p. First 64 bytes:", addr);
+  LOG_INFO("Attached to SHM at %p.", addr);
+  
+  LOG_INFO("First 64 bytes:");
   unsigned char* dump = (unsigned char*)addr;
   for (int i = 0; i < 64; i += 16) {
       printf("[DEBUG] %04x: ", i);
@@ -77,36 +77,35 @@ bool SnoopManager::attach() {
   }
 
   uintptr_t nameAddr = 0;
-  // 1. Find all potential strings to identify where data is
-  LOG_INFO("Exhaustively searching 100MB of SHM...");
+  char* search = (char*)addr;
+  LOG_INFO("Exhaustively searching 50MB of SHM for identifiers...");
   const char* targets[] = {"textInterface", "sleeManagement", "radiusInterface", "sipInterface", "diameterInterface", "watchdog", "SleeRoot"};
-  for (size_t i = 0; i < 100000000; i++) {
+  
+  for (size_t i = 0; i < 50000000; i++) {
       for (int t = 0; t < 7; t++) {
           size_t tlen = strlen(targets[t]);
           if (memcmp(&search[i], targets[t], tlen) == 0) {
               nameAddr = (uintptr_t)&search[i];
-              LOG_INFO("Found identifier '%s' at offset 0x%lx (Address %p)", targets[t], i, (void*)nameAddr);
+              LOG_INFO("Found identifier '%s' at offset 0x%lx (Address %p)", targets[t], (long)i, (void*)nameAddr);
               
-              // 2. Backtrack to find pointers in SleeRoot
               uintptr_t* rootPtrs = (uintptr_t*)addr;
               for (int offset = 0; offset < 4000; offset += 4) {
                   uintptr_t objStart = nameAddr - offset;
-                  // Search SleeRoot (first 4KB) for this object address
-                  for (int j = 0; j < 512; j++) {
+                  for (int j = 0; j < 1024; j++) {
                       if (rootPtrs[j] == objStart) {
-                          LOG_INFO("IDENTIFIED SleeRoot offset 0x%x -> %p (possibly firstInterfaceInstance)", j*8, (void*)objStart);
+                          LOG_INFO("IDENTIFIED SleeRoot offset 0x%lx -> %p", (long)j*8, (void*)objStart);
                           if (!g_firstInterface) g_firstInterface = (SnoopInterfaceInstance*)objStart;
                       }
                   }
               }
           }
+      }
   }
 
   if (!g_firstInterface) {
       LOG_ERROR("Could not identify interfaces. Is SLEE fully started?");
       return false;
   }
-
   return true;
 }
 
@@ -137,22 +136,10 @@ void SnoopManager::writePcapHeader() {
 
 void SnoopManager::scrape() {
   if (!capturing || !g_firstInterface) return;
-
-  // We iterate through the array of interface instances
-  // We'll use a conservative limit of 20 interfaces
   for (int i = 0; i < 20; i++) {
-    // Assuming each instance is ~1600 bytes (based on my calculation + padding)
-    // But wait, the array might be spaced by roundSize.
-    // Let's try to follow the 'base.next' if they are linked too.
-    SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 1600);
-    
-    // Validate if it looks like an interface
-    if (ii->base.currentList == NULL) continue; 
-    
-    // Find eventList
-    // Based on layout, eventList is after SleeListElement(32) and vtable(8) = offset 40
-    SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + 40);
-    
+    SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 1600); // 1600 is approx roundSize
+    if (!ii->base.currentList) continue; 
+    SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + 40); // Offset 40 for eventList
     SnoopEvent *ev = el->list.headElement.next;
     int evCount = 0;
     while (ev && ev != (void *)&el->list.headElement && evCount < 1000) {
@@ -186,9 +173,6 @@ void SnoopManager::writeEvent(SnoopEvent *ev, const char *name, int direction) {
   fflush(pcapFile);
 }
 
-/******************************************************************************
- * Telnet and Main (Full version)
- *****************************************************************************/
 TelnetListener::TelnetListener(int port, SnoopManager &mgr, ConnectionManager &conn)
     : snoopMgr(mgr), connMgr(conn) {
   fileDescriptor = socket(AF_INET, SOCK_STREAM, 0);
