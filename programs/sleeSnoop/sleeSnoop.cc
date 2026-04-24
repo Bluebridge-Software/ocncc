@@ -46,8 +46,12 @@ bool SnoopManager::attach() {
 }
 
 bool SnoopManager::start(const std::string& filename) {
+  LOG_INFO("SnoopManager::start called with %s", filename.c_str());
   pcapFile = fopen(filename.c_str(), "wb");
-  if (!pcapFile) return false;
+  if (!pcapFile) {
+    LOG_ERROR("Could not open PCAP file %s", filename.c_str());
+    return false;
+  }
   writePcapHeader();
   seenEvents.clear();
   eventCount = 0;
@@ -56,6 +60,7 @@ bool SnoopManager::start(const std::string& filename) {
 }
 
 void SnoopManager::stop() {
+  LOG_INFO("SnoopManager::stop called");
   capturing = false;
   if (pcapFile) {
     fclose(pcapFile);
