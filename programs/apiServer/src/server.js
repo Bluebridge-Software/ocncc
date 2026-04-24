@@ -18,12 +18,19 @@ const Config = require('./config/config');
 const BeClient = require('./services/be-client');
 const { getRedisClient } = require('./services/redis-client');
 const StatsTracker = require('./services/stats-tracker');
-const createRouter = require('./routes/api');
+
 const createDbGuard = require('./middleware/db-guard');
+
+// APIs
+const createRouter = require('./routes/api');
 const createDatabaseRouter = require('./routes/database-api');
 const createProfileRouter = require('./routes/profileBlock-api');
+
+// Swagger Specifications
 const buildSpec = require('./config/swagger-spec');
 const buildDatabaseSpec = require('./config/swagger-database-spec');
+const buildProfileSpec = require('./config/swagger-profileBlock-spec');
+
 const createAuthMiddleware = require('./middleware/auth');
 const AlertManager = require('./services/alert-manager');
 
@@ -189,12 +196,21 @@ function mergeDbSpec() {
   dbSpecMerged = true;
   dbReady = true;
 
+  // Merge DB spec
   mainSpec.tags = [...(mainSpec.tags || []), ...dbSpec.tags];
   Object.assign(mainSpec.paths, dbSpec.paths);
   mainSpec.components.schemas = Object.assign({}, mainSpec.components.schemas || {}, dbSpec.components.schemas);
   mainSpec.components.responses = Object.assign({}, mainSpec.components.responses || {}, dbSpec.components.responses);
 
-  console.log('[Swagger] Database endpoints merged into API spec');
+  // Merge Profile spec
+  if (profileSpec) {
+    mainSpec.tags = [...mainSpec.tags, ...profileSpec.tags];
+    Object.assign(mainSpec.paths, profileSpec.paths);
+    mainSpec.components.schemas = Object.assign({}, mainSpec.components.schemas, profileSpec.components?.schemas || {});
+    mainSpec.components.responses = Object.assign({}, mainSpec.components.responses, profileSpec.components?.responses || {});
+  }
+
+  console.log('[Swagger] Database + Profile endpoints merged into API spec');
 
   // 🔥 Re-mount swagger
   app._router.stack = app._router.stack.filter(

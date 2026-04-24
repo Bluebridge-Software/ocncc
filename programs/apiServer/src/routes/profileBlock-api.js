@@ -18,12 +18,12 @@
 'use strict';
 
 const express = require('express');
-const { ProfileError, ERR } = require('../BbsProfileBlock');
+const { ProfileError, ERR } = require('../database/BbsProfileBlock.js');
 
 /**
  * Create the profile management API router.
  *
- * @param {import('../BbsProfileBlock').BbsProfileBlock}  profileParser
+ * @param {import('../database/BbsProfileBlock').BbsProfileBlock}  profileParser
  * @returns {express.Router}
  */
 function createProfileRouter(profileParser) {
