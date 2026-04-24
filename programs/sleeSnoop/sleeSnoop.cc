@@ -109,42 +109,40 @@ void SnoopManager::scrape() {
     
     LOG_INFO("Scanning 100MB SHM for ALL events in ALL lists...");
     g_globalLists.clear();
-    int totalEvents = 0;
     for (long i = 0; i < 12500000; i++) {
-        uintptr_t selfAddr = (uintptr_t)((char*)root + i * 8);
         uintptr_t next = p[i];
         uintptr_t prev = p[i+1];
         if (next >= 0x80000000 && next < 0x90000000 && 
-            prev >= 0x80000000 && prev < 0x90000000) {
+            prev >= 0x80000000 && prev < 0x90000000 && (next % 8 == 0)) {
+            
+            uintptr_t selfAddr = (uintptr_t)((char*)root + i * 8);
             if (next != selfAddr && prev != selfAddr) {
-                uint32_t size = ((uint32_t*)root)[i*2 - 2];
-                if (size > 0 && size < 5000) {
-                    // Walk this list
-                    uintptr_t* head = (uintptr_t*)((char*)root + i*8);
-                    uintptr_t* curr = (uintptr_t*)next;
-                    int count = 0;
-                    while (curr && curr != head && count < size + 20) {
-                        count++;
-                        if ((uintptr_t)curr < 0x80000000 || (uintptr_t)curr > 0x8fffffff) break;
-                        
-                        uint32_t len = ((uint32_t*)curr)[12];
-                        if (len > 0 && len < 20000) {
-                            EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 };
-                            if (seenEvents.find(sig) == seenEvents.end()) {
-                                writeEvent((SnoopEvent*)curr, "Scanned", 0);
-                                seenEvents.insert(sig);
-                                eventCount++;
-                            }
+                // Potential list head or element.
+                // If it's a head, it points to elements that point back to IT.
+                // We'll just try to walk it as a head.
+                uintptr_t* head = &p[i];
+                uintptr_t* curr = (uintptr_t*)next;
+                int count = 0;
+                while (curr && curr != head && count < 1000) {
+                    count++;
+                    if ((uintptr_t)curr < 0x80000000 || (uintptr_t)curr > 0x8fffffff) break;
+                    
+                    uint32_t len = ((uint32_t*)curr)[12];
+                    if (len > 0 && len < 20000) {
+                        EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 };
+                        if (seenEvents.find(sig) == seenEvents.end()) {
+                            writeEvent((SnoopEvent*)curr, "Scanned", 0);
+                            seenEvents.insert(sig);
+                            eventCount++;
                         }
-                        
-                        // Try to find next pointer. 
-                        // It's either at offset 16 (curr[2]) or 32 (curr[4])
-                        uintptr_t n1 = curr[2];
-                        uintptr_t n2 = curr[4];
-                        if (n1 >= 0x80000000 && n1 < 0x90000000) curr = (uintptr_t*)n1;
-                        else if (n2 >= 0x80000000 && n2 < 0x90000000) curr = (uintptr_t*)n2;
-                        else break;
                     }
+                    
+                    // Try next
+                    uintptr_t n1 = curr[2];
+                    uintptr_t n2 = curr[4];
+                    if (n1 >= 0x80000000 && n1 < 0x90000000) curr = (uintptr_t*)n1;
+                    else if (n2 >= 0x80000000 && n2 < 0x90000000) curr = (uintptr_t*)n2;
+                    else break;
                 }
             }
         }
