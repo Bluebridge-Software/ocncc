@@ -148,6 +148,7 @@ app.use((req, res, next) => {
 // ---------------------------------------------------------------------------
 const mainSpec = buildSpec(config.get('serverUrl'), config.get('serverDescription'));
 const dbSpec = DB_ENABLED ? buildDatabaseSpec() : null;
+const profileSpec = DB_ENABLED ? buildProfileSpec() : null;
 
 const swaggerOptions = {
   customCss: `
