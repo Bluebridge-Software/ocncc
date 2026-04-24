@@ -164,11 +164,11 @@ void SnoopManager::scrape() {
           }
       }
       
-      LOG_INFO("Dumping list memory at 0x80000818 (512 bytes):");
-      unsigned char* ld = (unsigned char*)((char*)root + 0x818);
-      for (int k = 0; k < 512; k += 16) {
+      LOG_INFO("Dumping event memory at 0x802afd60 (128 bytes):");
+      unsigned char* ed = (unsigned char*)((char*)root + 0x2afd60);
+      for (int k = 0; k < 128; k += 16) {
           printf("[DEBUG] %04x: ", k);
-          for (int j = 0; j < 16; j++) printf("%02x ", ld[k+j]);
+          for (int j = 0; j < 16; j++) printf("%02x ", ed[k+j]);
           printf("\n");
       }
       for (int i = 0; i < 2000; i++) {
