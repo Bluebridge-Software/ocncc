@@ -70,33 +70,35 @@ bool SnoopManager::attach() {
   root = (SnoopRoot *)addr;
   LOG_INFO("Attached to SHM at %p. Finding interfaces...", addr);
 
-  // 1. Find a known interface name
-  const char* targets[] = {"textInterface", "sleeManagement", "radiusInterface"};
-  char* search = (char*)addr;
   uintptr_t nameAddr = 0;
-  for (size_t i = 0; i < 2000000; i++) {
-      for (int t = 0; t < 3; t++) {
-          if (strcmp(&search[i], targets[t]) == 0) {
-              nameAddr = (uintptr_t)&search[i];
-              LOG_INFO("Found '%s' at %p", targets[t], (void*)nameAddr);
-              
-              // 2. Backtrack to find firstInterfaceInstance pointer in SleeRoot
-              // SleeRoot is at the start.
-              uintptr_t* rootPtrs = (uintptr_t*)addr;
-              for (int offset = 100; offset < 1500; offset += 4) {
-                  uintptr_t objStart = nameAddr - offset;
-                  // Search for objStart in the first 2KB of SHM (SleeRoot)
-                  for (int j = 0; j < 256; j++) {
-                      if (rootPtrs[j] == objStart) {
-                          LOG_INFO("IDENTIFIED firstInterfaceInstance at SleeRoot offset 0x%x -> %p", j*8, (void*)objStart);
-                          g_firstInterface = (SnoopInterfaceInstance*)objStart;
-                          break;
+  // 1. Find all potential strings to identify where data is
+  LOG_INFO("Searching 10MB of SHM for identifiers...");
+  const char* targets[] = {"textInterface", "sleeManagement", "radiusInterface", "sipInterface", "diameterInterface", "watchdog", "SleeRoot"};
+  char* search = (char*)addr;
+  for (size_t i = 0; i < 10000000; i++) {
+      if (search[i] == 't' || search[i] == 's' || search[i] == 'r') {
+          for (int t = 0; t < 7; t++) {
+              if (strncmp(&search[i], targets[t], strlen(targets[t])) == 0) {
+                  nameAddr = (uintptr_t)&search[i];
+                  LOG_INFO("Found identifier '%s' at offset 0x%lx", targets[t], i);
+                  
+                  // 2. Backtrack to find firstInterfaceInstance pointer in SleeRoot
+                  uintptr_t* rootPtrs = (uintptr_t*)addr;
+                  for (int offset = 0; offset < 4000; offset += 4) {
+                      uintptr_t objStart = nameAddr - offset;
+                      for (int j = 0; j < 1000; j++) {
+                          if (rootPtrs[j] == objStart) {
+                              LOG_INFO("IDENTIFIED component at SleeRoot offset 0x%x -> %p", j*8, (void*)objStart);
+                              // We'll assume the first one we find that's linked in SleeRoot is an interface or app
+                              g_firstInterface = (SnoopInterfaceInstance*)objStart;
+                              break;
+                          }
                       }
+                      if (g_firstInterface) break;
                   }
-                  if (g_firstInterface) break;
               }
+              if (g_firstInterface) break;
           }
-          if (g_firstInterface) break;
       }
       if (g_firstInterface) break;
   }
