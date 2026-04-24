@@ -107,15 +107,27 @@ void SnoopManager::scrape() {
       }
     }
     
-    LOG_INFO("Dumping beVWARS0 instance memory at 0x802abdf0:");
-    unsigned char* id = (unsigned char*)((char*)root + 0x2abdf0);
-    for (int k = 0; k < 256; k += 16) {
-        printf("[DEBUG] %04x: ", k);
-        for (int j = 0; j < 16; j++) printf("%02x ", id[k+j]);
-        printf("\n");
+    LOG_INFO("Deep scanning 100MB SHM for protocol payloads...");
+    for (long i = 0; i < 12500000; i++) {
+        const char* s = (const char*)&p[i];
+        if (strncasecmp(s, "Escher", 6) == 0) {
+            LOG_INFO("Found 'Escher' payload at offset 0x%lx: %.32s", (long)i*8, s);
+            // Backtrack to find possible event header (vtable or list pointer)
+            for (int j = 1; j < 100; j++) {
+                uintptr_t* head = &p[i-j];
+                if ((uintptr_t)head[1] >= 0x80000000 && (uintptr_t)head[1] <= 0x80001000) {
+                    LOG_INFO("Likely event header at %p (Offset 0x%lx)", head, (long)((char*)head - (char*)root));
+                    for (int k = 0; k < 60; k++) {
+                        uint32_t val = ((uint32_t*)head)[k];
+                        if (val > 0 && val < 65535) {
+                            LOG_INFO("  Offset %d: %u (0x%x)", k*4, val, val);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
     }
-    fflush(stdout);
-    fflush(stdout);
   }
 
   // 1. Scan Global Lists
