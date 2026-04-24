@@ -151,18 +151,39 @@ static std::vector<SnoopLockedList<SnoopEvent>*> g_globalLists;
 void SnoopManager::scrape() {
   if (!capturing) return;
 
-  // 0. Find global lists once
-  static bool scanned = false;
-  if (!scanned) {
-      scanned = true;
+  // 0. Comprehensive mapping once
+  static bool mapped = false;
+  if (!mapped) {
+      mapped = true;
       uintptr_t* p = (uintptr_t*)root;
-      for (int i = 1; i < 2000; i++) {
-          uintptr_t fieldAddr = (uintptr_t)root + i*8;
-          if (p[i] == fieldAddr && p[i+1] == fieldAddr) {
-              g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)&p[i-1]);
+      for (int i = 0; i < 2000; i++) {
+          uintptr_t val = p[i];
+          if (val > 0x80000000 && val < 0x8fffffff && (val % 8 == 0)) {
+              // Is it a list? (check empty list signature with various mutex sizes)
+              for (int m = 0; m <= 64; m += 4) {
+                  uintptr_t* lp = (uintptr_t*)((char*)val + m);
+                  if ((uintptr_t)lp > 0x80000000 && (uintptr_t)lp < 0x8fffffff) {
+                      if (lp[0] == (uintptr_t)lp && lp[1] == (uintptr_t)lp) {
+                          g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)val);
+                          LOG_INFO("Found potential list at SleeRoot offset 0x%lx (Address %p)", (long)i*8, (void*)val);
+                          break;
+                      }
+                  }
+              }
+              // Is it a component with a name?
+              for (int offset = 0; offset < 600; offset += 4) {
+                  char* name = (char*)val + offset;
+                  if (name[0] >= 32 && name[0] <= 126 && name[1] >= 32 && name[1] <= 126) {
+                      // Found a string! If it's a known name, maybe this is the array start
+                      if (strcmp(name, "Timer") == 0) {
+                          g_firstInterface = (SnoopInterfaceInstance*)val;
+                          LOG_INFO("Found g_firstInterface at SleeRoot offset 0x%lx -> %p", (long)i*8, (void*)val);
+                      }
+                  }
+              }
           }
       }
-      LOG_INFO("Discovered %lu global event lists in SleeRoot", (unsigned long)g_globalLists.size());
+      LOG_INFO("Mapped %lu global lists", (unsigned long)g_globalLists.size());
   }
 
   // 1. Scan Global Lists
