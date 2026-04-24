@@ -262,7 +262,7 @@ void SnoopManager::scrape() {
             EventSignature sig = {ev, (size_t)len, h};
             if (seenEvents.find(sig) == seenEvents.end()) {
               static bool firstDump = false;
-              if (!firstDump && len > 0) {
+              if (!firstDump) {
                   firstDump = true;
                   LOG_INFO("Dumping first event at %p:", ev);
                   unsigned char* d = (unsigned char*)ev;
