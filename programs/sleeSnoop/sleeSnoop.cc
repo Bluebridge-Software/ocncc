@@ -108,21 +108,28 @@ void SnoopManager::scrape() {
     }
     
     LOG_INFO("Scanning 100MB SHM for populated lists...");
+    g_globalLists.clear();
     for (long i = 0; i < 12500000; i++) {
         uintptr_t selfAddr = (uintptr_t)((char*)root + i * 8);
         uintptr_t next = p[i];
         uintptr_t prev = p[i+1];
         if (next >= 0x80000000 && next < 0x90000000 && 
             prev >= 0x80000000 && prev < 0x90000000) {
-            // Possible list head or element.
-            // A list head usually has next/prev pointing to elements that point back.
             if (next != selfAddr && prev != selfAddr) {
-                // Potential populated list head!
-                // But wait, it could be an element. 
-                // A head usually has a size field before it.
                 uint32_t size = ((uint32_t*)root)[i*2 - 2];
-                if (size > 0 && size < 1000) {
+                if (size > 0 && size < 2000) {
                     LOG_INFO("Found populated list! Head at 0x%lx, Size: %u, Next: 0x%lx", (long)i*8, size, (long)next);
+                    g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)((char*)root + i*8 - 16));
+                    
+                    if (i*8 == 0x608) {
+                        LOG_INFO("Dumping first event of list 0x608 (Address 0x%lx):", (long)next);
+                        unsigned char* d = (unsigned char*)next;
+                        for (int j = 0; j < 128; j += 16) {
+                            printf("[DEBUG] %04x: ", j);
+                            for (int k = 0; k < 16; k++) printf("%02x ", d[j+k]);
+                            printf("\n");
+                        }
+                    }
                 }
             }
         }
