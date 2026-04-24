@@ -107,10 +107,19 @@ void SnoopManager::scrape() {
       }
     }
     
-    LOG_INFO("Scanning SHM for 'beServer' string...");
+    LOG_INFO("Scanning SHM for 'beServer' and 'beVWARS' instances...");
     for (long i = 0; i < 12500000; i++) {
-        if (memcmp(&p[i], "beServer", 8) == 0) {
-            LOG_INFO("Found 'beServer' at offset 0x%lx", (long)i*8);
+        if (memcmp(&p[i], "beServer", 8) == 0 || memcmp(&p[i], "beVWARS", 7) == 0) {
+            LOG_INFO("Found interface string at offset 0x%lx", (long)i*8);
+            uintptr_t* inst = &p[i - 30]; // Backtrack to instance base
+            for (int k = 0; k < 100; k++) {
+                if (inst[k] == (uintptr_t)&inst[k] && inst[k+1] == (uintptr_t)&inst[k]) {
+                    LOG_INFO("  Found active list head at offset 0x%x (Relative to base)", k*8);
+                }
+            }
+        }
+        if (p[i] == 0x2ce1c000) {
+            LOG_INFO("Found ESCH symbol at offset 0x%lx", (long)i*8);
         }
     }
   }
