@@ -95,6 +95,26 @@ void SnoopManager::scrape() {
         }
       }
     }
+    
+    LOG_INFO("Scanning SHM for 'Escher' string...");
+    for (long i = 0; i < 12500000; i++) {
+        if (memcmp(&p[i], "Escher", 6) == 0) {
+            LOG_INFO("Found 'Escher' at offset 0x%lx", (long)i*8);
+            for (int j = 1; j < 60; j++) {
+                uintptr_t* head = &p[i-j];
+                if ((uintptr_t)head[1] == 0x80000818) {
+                    LOG_INFO("Likely event header for 'Escher' at %p (Offset 0x%lx)", head, (long)((char*)head - (char*)root));
+                    for (int k = 4; k < 40; k++) {
+                        uint32_t len = ((uint32_t*)head)[k];
+                        if (len > 0 && len < 10000) {
+                            LOG_INFO("Potential length %u at uint32 offset %d (Value 0x%x)", len, k, len);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
   }
 
   // 1. Scan Global Lists
