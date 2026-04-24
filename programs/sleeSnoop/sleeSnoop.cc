@@ -158,26 +158,27 @@ void SnoopManager::scrape() {
       uintptr_t* p = (uintptr_t*)root;
       for (int i = 0; i < 2000; i++) {
           uintptr_t val = p[i];
-          if (val > 0x80000000 && val < 0x8fffffff && (val % 8 == 0)) {
-              // Is it a list? (check empty list signature with various mutex sizes)
-              for (int m = 0; m <= 64; m += 4) {
-                  uintptr_t* lp = (uintptr_t*)((char*)val + m);
-                  if ((uintptr_t)lp > 0x80000000 && (uintptr_t)lp < 0x8fffffff) {
-                      if (lp[0] == (uintptr_t)lp && lp[1] == (uintptr_t)lp) {
-                          g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)val);
-                          LOG_INFO("Found potential list at SleeRoot offset 0x%lx (Address %p)", (long)i*8, (void*)val);
-                          break;
-                      }
+          if (val >= 0x80000000 && val < 0x8fffffff && (val % 8 == 0)) {
+              // 1. Search for global event list array
+              // check said 0x80000818 is a list. Let's see if we find a pointer to it.
+              if (val == 0x80000818) {
+                  LOG_INFO("Found eventListArray at SleeRoot offset 0x%lx -> %p", (long)i*8, (void*)val);
+                  // Scan e.g. 50 lists from here
+                  for (int k = 0; k < 50; k++) {
+                      g_globalLists.push_back((SnoopLockedList<SnoopEvent>*)((char*)val + k * 144)); // 144 is guess for list size
                   }
               }
-              // Is it a component with a name?
+
+              // 2. Search for Interface/App instances by name
               for (int offset = 0; offset < 600; offset += 4) {
                   char* name = (char*)val + offset;
                   if (name[0] >= 32 && name[0] <= 126 && name[1] >= 32 && name[1] <= 126) {
-                      // Found a string! If it's a known name, maybe this is the array start
                       if (strcmp(name, "Timer") == 0) {
                           g_firstInterface = (SnoopInterfaceInstance*)val;
-                          LOG_INFO("Found g_firstInterface at SleeRoot offset 0x%lx -> %p", (long)i*8, (void*)val);
+                          LOG_INFO("Found g_firstInterface ('Timer') at SleeRoot offset 0x%lx -> %p", (long)i*8, (void*)val);
+                      }
+                      if (strcmp(name, "beVWARS0") == 0 && !g_firstInterface) {
+                          g_firstInterface = (SnoopInterfaceInstance*)val; // use as fallback
                       }
                   }
               }
