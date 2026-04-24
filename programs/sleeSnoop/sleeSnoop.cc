@@ -83,9 +83,12 @@ void SnoopManager::scrape() {
   if (!capturing) return;
 
   static bool mapped = false;
+  static std::set<uintptr_t> escherDescriptors;
+  
+  uintptr_t* p = (uintptr_t*)root;
+
   if (!mapped) {
     mapped = true;
-    uintptr_t* p = (uintptr_t*)root;
     for (int i = 0; i < 2000; i++) {
       uintptr_t val = p[i];
       if (val == 0x80000818) {
@@ -97,18 +100,17 @@ void SnoopManager::scrape() {
       if (val >= 0x80000000 && val < 0x8fffffff && (val % 8 == 0)) {
         for (int offset = 0; offset < 600; offset += 4) {
           char* name = (char*)val + offset;
-          if (name[0] >= 32 && name[0] <= 126 && name[1] >= 32 && name[1] <= 126) {
+          if (name[0] >= 32 && name[1] >= 32) {
             if (strcmp(name, "Timer") == 0) {
               g_firstInterface = (SnoopInterfaceInstance*)val;
               LOG_INFO("Found g_firstInterface ('Timer') at SleeRoot offset 0x%lx -> %p", (long)i*8, (void*)val);
             }
           }
         }
-        }
       }
     }
-  }
-    std::set<uintptr_t> escherDescriptors;
+    
+    LOG_INFO("Identifying Escher-related descriptors...");
     char* cp = (char*)root;
     for (long i = 0; i < 100000000 - 32; i++) {
         if (memcmp(&cp[i], "beProtocolClientEvent", 21) == 0 ||
@@ -117,52 +119,50 @@ void SnoopManager::scrape() {
             uintptr_t desc = (uintptr_t)(cp + i - 28);
             escherDescriptors.insert(desc);
             LOG_INFO("Found Escher descriptor '%s' at %p", &cp[i], (void*)desc);
-            // Skip ahead
             i += 32;
         }
     }
+  }
 
-    LOG_INFO("Snooping active. Capturing Escher traffic...");
-    for (long i = 0; i < 12500000; i++) {
-        uintptr_t selfAddr = (uintptr_t)((char*)root + i * 8);
-        uintptr_t next = p[i];
-        uintptr_t prev = p[i+1];
+  for (long i = 0; i < 12500000; i++) {
+    uintptr_t selfAddr = (uintptr_t)((char*)root + i * 8);
+    uintptr_t next = p[i];
+    uintptr_t prev = p[i+1];
+    
+    if (next >= 0x80000000 && next < 0x90000000 && 
+        prev >= 0x80000000 && prev < 0x90000000 && (next % 8 == 0) && next != selfAddr) {
         
-        if (next >= 0x80000000 && next < 0x90000000 && 
-            prev >= 0x80000000 && prev < 0x90000000 && (next % 8 == 0) && next != selfAddr) {
+        uintptr_t* head = &p[i];
+        uintptr_t* curr = (uintptr_t*)next;
+        int count = 0;
+        while (curr && curr != head && count < 2000) {
+            count++;
+            if ((uintptr_t)curr < 0x80000000 || (uintptr_t)curr > 0x8fffffff) break;
             
-            uintptr_t* head = &p[i];
-            uintptr_t* curr = (uintptr_t*)next;
-            int count = 0;
-            while (curr && curr != head && count < 2000) {
-                count++;
-                if ((uintptr_t)curr < 0x80000000 || (uintptr_t)curr > 0x8fffffff) break;
-                
-                uintptr_t desc = curr[6]; // Offset 48
-                if (escherDescriptors.find(desc) != escherDescriptors.end()) {
-                    uint32_t len = ((uint32_t*)curr)[10]; // Offset 40
-                    if (len > 0 && len < 30000) {
-                        EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 };
-                        unsigned char* d = (unsigned char*)curr + 64;
-                        uint32_t h = 0;
-                        for (uint32_t k = 0; k < len && k < 64; k++) h = (h * 31) + d[k];
-                        sig.hash = h;
+            uintptr_t desc = curr[6]; // Offset 48
+            if (escherDescriptors.find(desc) != escherDescriptors.end()) {
+                uint32_t len = ((uint32_t*)curr)[10]; // Offset 40
+                if (len > 0 && len < 30000) {
+                    EventSignature sig = { (SnoopEvent*)curr, (size_t)len, 0 };
+                    unsigned char* d = (unsigned char*)curr + 64;
+                    uint32_t h = 0;
+                    for (uint32_t k = 0; k < len && k < 64; k++) h = (h * 31) + d[k];
+                    sig.hash = h;
 
-                        if (seenEvents.find(sig) == seenEvents.end()) {
-                            writeEvent((SnoopEvent*)curr, "Escher", 0);
-                            seenEvents.insert(sig);
-                            eventCount++;
-                        }
+                    if (seenEvents.find(sig) == seenEvents.end()) {
+                        writeEvent((SnoopEvent*)curr, "Escher", 0);
+                        seenEvents.insert(sig);
+                        eventCount++;
                     }
                 }
-                
-                uintptr_t nextPtr = curr[1]; // Offset 8
-                if (nextPtr == (uintptr_t)curr) break;
-                curr = (uintptr_t*)nextPtr;
             }
+            uintptr_t nextPtr = curr[1];
+            if (nextPtr == (uintptr_t)curr) break;
+            curr = (uintptr_t*)nextPtr;
         }
     }
-    fflush(stdout);
+  }
+  fflush(stdout);
 }
 }
 
