@@ -88,14 +88,17 @@ bool SnoopManager::attach() {
               nameAddr = (uintptr_t)&search[i];
               LOG_INFO("Found identifier '%s' at offset 0x%lx (Address %p)", targets[t], (long)i, (void*)nameAddr);
               
-              // 2. Backtrack to find pointers in SleeRoot
               uintptr_t* rootPtrs = (uintptr_t*)addr;
+              // search SleeRoot for pointers to this object
               for (int offset = 0; offset < 600; offset += 4) {
                   uintptr_t objStart = nameAddr - offset;
                   for (int j = 0; j < 1024; j++) {
                       if (rootPtrs[j] == objStart) {
-                          LOG_INFO("IDENTIFIED SleeRoot offset 0x%lx -> %p (possibly firstInterfaceInstance)", (long)j*8, (void*)objStart);
-                          if (!g_firstInterface) g_firstInterface = (SnoopInterfaceInstance*)objStart;
+                          LOG_INFO("IDENTIFIED SleeRoot offset 0x%lx -> %p", (long)j*8, (void*)objStart);
+                          // 0x2a0 is firstInterfaceInstance
+                          if (j*8 == 0x2a0) g_firstInterface = (SnoopInterfaceInstance*)objStart;
+                          // 0x268 is firstApplicationInstance
+                          if (j*8 == 0x268) g_firstAppInst = (SnoopApplicationInstance*)objStart;
                       }
                   }
               }
@@ -103,8 +106,19 @@ bool SnoopManager::attach() {
       }
   }
 
-  if (!g_firstInterface) {
-      LOG_ERROR("Could not identify interfaces. Is SLEE fully started?");
+  // Fallback: if we didn't find them by name, use the known offsets from the SleeRoot dump
+  uintptr_t* rootPtrs = (uintptr_t*)addr;
+  if (!g_firstInterface && (rootPtrs[0x2a0/8] & 0x80000000)) {
+      g_firstInterface = (SnoopInterfaceInstance*)rootPtrs[0x2a0/8];
+      LOG_INFO("Using fallback for g_firstInterface: %p", g_firstInterface);
+  }
+  if (!g_firstAppInst && (rootPtrs[0x268/8] & 0x80000000)) {
+      g_firstAppInst = (SnoopApplicationInstance*)rootPtrs[0x268/8];
+      LOG_INFO("Using fallback for g_firstAppInst: %p", g_firstAppInst);
+  }
+
+  if (!g_firstInterface && !g_firstAppInst) {
+      LOG_ERROR("Could not identify interfaces or apps. Is SLEE fully started?");
       return false;
   }
   return true;
@@ -135,52 +149,79 @@ void SnoopManager::writePcapHeader() {
   fwrite(&header, sizeof(header), 1, pcapFile);
 }
 
+static SnoopApplicationInstance* g_firstAppInst = NULL;
+
 void SnoopManager::scrape() {
-  if (!capturing || !g_firstInterface) return;
+  if (!capturing || (!g_firstInterface && !g_firstAppInst)) return;
   static int eventListOffset = -1;
-  static int maxInts = 100;
-  
-  // Read maxInterfaces from SleeRoot (offset 116 based on header layout)
-  // But to be safe, we'll just use a large enough limit if not sure.
-  // Based on check, we have around 30 interfaces. 200 is plenty.
-  maxInts = 200; 
 
-  for (int i = 0; i < maxInts; i++) {
-    SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 560);
-    // Safety check: ensure pointer is in SHM
-    if ((uintptr_t)ii < 0x80000000 || (uintptr_t)ii > 0x90000000) break;
-    
-    if (!ii->base.currentList || ii->base.currentList == (void*)0xffffffffffffffff) continue; 
-    
-    if (eventListOffset == -1) {
-        uintptr_t* p = (uintptr_t*)ii;
-        for (int j = 1; j < 40; j++) {
-            if (p[j] == (uintptr_t)&p[j] && p[j+1] == (uintptr_t)&p[j]) {
-                eventListOffset = (j-1) * 8;
-                break;
-            }
-        }
-    }
-    if (eventListOffset == -1) continue;
-
-    SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + eventListOffset);
-    SnoopEvent *ev = el->list.headElement.next;
-    int evCount = 0;
-    while (ev && ev != (void *)&el->list.headElement && evCount < 100) {
-      evCount++;
-      if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
+  // 1. Scan Interface Instances
+  if (g_firstInterface) {
+    for (int i = 0; i < 200; i++) {
+      SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 560);
+      if ((uintptr_t)ii < 0x80000000 || (uintptr_t)ii > 0x90000000) break;
       
-      uint32_t len = (uint32_t)ev->length;
-      if (len > 0 && len < 65535) {
-          EventSignature sig = {ev, (size_t)len, 0};
-          if (seenEvents.find(sig) == seenEvents.end()) {
-            writeEvent(ev, "Snoop", 0);
-            seenEvents.insert(sig);
-            eventCount++;
+      // Heuristic: skip if name is empty or looks like garbage
+      if (((char*)ii)[100] == 0 && ((char*)ii)[101] == 0) {
+          // But wait, the name is at offset ~460.
+          // Let's just try to find the event list.
+      }
+      
+      if (eventListOffset == -1) {
+          uintptr_t* p = (uintptr_t*)ii;
+          for (int j = 1; j < 40; j++) {
+              if (p[j] == (uintptr_t)&p[j] && p[j+1] == (uintptr_t)&p[j]) {
+                  eventListOffset = (j-1) * 8;
+                  break;
+              }
           }
       }
-      ev = ev->base.next;
+      if (eventListOffset == -1) continue;
+
+      SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + eventListOffset);
+      SnoopEvent *ev = el->list.headElement.next;
+      int evCount = 0;
+      while (ev && ev != (void *)&el->list.headElement && evCount < 100) {
+        evCount++;
+        if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
+        uint32_t len = (uint32_t)ev->length;
+        if (len > 0 && len < 65535) {
+            EventSignature sig = {ev, (size_t)len, 0};
+            if (seenEvents.find(sig) == seenEvents.end()) {
+              writeEvent(ev, "Snoop", 0);
+              seenEvents.insert(sig);
+              eventCount++;
+            }
+        }
+        ev = ev->base.next;
+      }
     }
+  }
+
+  // 2. Scan Application Instances (Stride for apps is usually different, let's guess 560 too or check)
+  if (g_firstAppInst) {
+      for (int i = 0; i < 200; i++) {
+          SnoopApplicationInstance* ai = (SnoopApplicationInstance*)((char*)g_firstAppInst + i * 560);
+          if ((uintptr_t)ai < 0x80000000 || (uintptr_t)ai > 0x90000000) break;
+          
+          SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ai + eventListOffset);
+          SnoopEvent *ev = el->list.headElement.next;
+          int evCount = 0;
+          while (ev && ev != (void *)&el->list.headElement && evCount < 100) {
+            evCount++;
+            if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
+            uint32_t len = (uint32_t)ev->length;
+            if (len > 0 && len < 65535) {
+                EventSignature sig = {ev, (size_t)len, 0};
+                if (seenEvents.find(sig) == seenEvents.end()) {
+                  writeEvent(ev, "Snoop", 0);
+                  seenEvents.insert(sig);
+                  eventCount++;
+                }
+            }
+            ev = ev->base.next;
+          }
+      }
   }
 }
 
