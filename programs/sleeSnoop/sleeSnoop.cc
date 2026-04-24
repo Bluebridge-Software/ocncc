@@ -68,7 +68,13 @@ bool SnoopManager::attach() {
   if (addr == (void *)-1) return false;
 
   root = (SnoopRoot *)addr;
-  LOG_INFO("Attached to SHM at %p. Finding interfaces...", addr);
+  LOG_INFO("Attached to SHM at %p. First 64 bytes:", addr);
+  unsigned char* dump = (unsigned char*)addr;
+  for (int i = 0; i < 64; i += 16) {
+      printf("[DEBUG] %04x: ", i);
+      for (int j = 0; j < 16; j++) printf("%02x ", dump[i+j]);
+      printf("\n");
+  }
 
   uintptr_t nameAddr = 0;
   // 1. Find all potential strings to identify where data is
