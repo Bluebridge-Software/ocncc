@@ -137,14 +137,33 @@ void SnoopManager::writePcapHeader() {
 
 void SnoopManager::scrape() {
   if (!capturing || !g_firstInterface) return;
+  static int eventListOffset = -1;
+
   for (int i = 0; i < 20; i++) {
     SnoopInterfaceInstance* ii = (SnoopInterfaceInstance*)((char*)g_firstInterface + i * 560);
-    if (!ii->base.currentList) continue; 
-    SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + 40);
+    if (!ii->base.currentList || ii->base.currentList == (void*)0xffffffffffffffff) continue; 
+    
+    // Dynamically find eventListOffset once
+    if (eventListOffset == -1) {
+        uintptr_t* p = (uintptr_t*)ii;
+        for (int j = 1; j < 40; j++) {
+            if (p[j] == (uintptr_t)&p[j] && p[j+1] == (uintptr_t)&p[j]) {
+                eventListOffset = (j-1) * 8;
+                LOG_INFO("Dynamically found eventListOffset: %d", eventListOffset);
+                break;
+            }
+        }
+    }
+    if (eventListOffset == -1) continue;
+
+    SnoopLockedList<SnoopEvent>* el = (SnoopLockedList<SnoopEvent>*)((char*)ii + eventListOffset);
     SnoopEvent *ev = el->list.headElement.next;
     int evCount = 0;
-    while (ev && ev != (void *)&el->list.headElement && evCount < 1000) {
+    while (ev && ev != (void *)&el->list.headElement && evCount < 100) {
       evCount++;
+      // Basic sanity check on ev pointer
+      if ((uintptr_t)ev < 0x80000000 || (uintptr_t)ev > 0x8fffffff) break;
+      
       uint32_t len = (uint32_t)ev->length;
       if (len > 0 && len < 65535) {
           EventSignature sig = {ev, (size_t)len, 0};
