@@ -107,19 +107,16 @@ void SnoopManager::scrape() {
       }
     }
     
-    LOG_INFO("Scanning 100MB SHM for 'beProtocolClientEvent' (byte-aligned)...");
-    char* cp = (char*)root;
-    for (long i = 0; i < 100000000 - 24; i++) {
-        if (memcmp(&cp[i], "beProtocolClientEvent", 21) == 0) {
-            LOG_INFO("Found 'beProtocolClientEvent' at offset 0x%lx", i);
-            unsigned char* d = (unsigned char*)&cp[i - 28];
+    LOG_INFO("Scanning SHM for events with type 'beProtocolClientEvent' (0x802a4ea0)...");
+    for (long i = 0; i < 12500000; i++) {
+        if (p[i] == 0x802a4ea0) {
+            LOG_INFO("Found event object with type descriptor at offset 0x%lx", (long)i*8);
+            unsigned char* d = (unsigned char*)((char*)root + i*8 - 48);
             for (int j = 0; j < 512; j += 16) {
-                printf("[DUMP] %04x: ", j);
+                printf("[EVENT_OBJ] %04x: ", j);
                 for (int k = 0; k < 16; k++) printf("%02x ", d[j+k]);
                 printf("\n");
             }
-            // Only dump the first one to avoid flooding
-            break;
         }
     }
     LOG_INFO("Total unique events found in scan: %d", (int)seenEvents.size());
