@@ -67,31 +67,40 @@ SnoopManager::SnoopManager()
 SnoopManager::~SnoopManager() { stop(); }
 
 bool SnoopManager::attach() {
-  key_t key = ftok("/tmp/slee", 'a');
-  if (key == -1) {
-    const char *env = getenv("SLEE_FILE");
-    if (env)
-      key = ftok(env, 'a');
+  const char *sleeFile = getenv("SLEE_FILE");
+  if (sleeFile == NULL) {
+      sleeFile = "/tmp/slee";
   }
 
-  if (key == -1)
+  key_t key = ftok(sleeFile, 'a');
+  if (key == -1) {
+    LOG_ERROR("ftok(%s, 'a') failed: %s", sleeFile, strerror(errno));
     return false;
+  }
 
   int shmid = shmget(key, 0, 0);
-  if (shmid == -1)
+  if (shmid == -1) {
+    LOG_ERROR("shmget(0x%lx, 0, 0) failed: %s (Is SLEE really running with this key?)", (long)key, strerror(errno));
     return false;
-
-  void *addr = shmat(shmid, (void *)0x80000000, 0);
-  if (addr == (void *)-1) {
-    addr = shmat(shmid, NULL, 0); // Try auto-offset
   }
 
-  if (addr == (void *)-1)
-    return false;
+  // Try standard SLEE offset first (0x80000000 on Linux)
+  void *addr = shmat(shmid, (void *)0x80000000, SHM_RDONLY);
+  if (addr == (void *)-1) {
+    LOG_INFO("shmat with 0x80000000 failed, trying auto-address...");
+    addr = shmat(shmid, NULL, SHM_RDONLY); 
+  }
 
+  if (addr == (void *)-1) {
+    LOG_ERROR("shmat failed: %s", strerror(errno));
+    return false;
+  }
+
+  LOG_INFO("Successfully attached to SLEE shared memory at %p", addr);
   root = (SnoopRoot *)addr;
   return true;
 }
+
 
 bool SnoopManager::start(const std::string &filename) {
   if (capturing)
