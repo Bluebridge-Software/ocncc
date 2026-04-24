@@ -289,12 +289,16 @@ int main() {
   conn.add(listener);
 
   LOG_INFO("Snoop Terminal ready on port 9999");
+  
   std::thread scraperThread([&]() {
+    LOG_INFO("Scraper thread started");
+    fflush(stdout);
     while (true) {
       mgr.scrape();
       usleep(10000); // 10ms
     }
   });
+  scraperThread.detach();
 
   while (true) conn.process();
   return 0;
