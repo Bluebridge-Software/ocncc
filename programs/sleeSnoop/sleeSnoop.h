@@ -129,19 +129,9 @@ struct SnoopApplicationInstance {
 
 struct SnoopRoot {
     int eventsHandled;
-    char padding[8]; // Alignment
-    
-    // We skip the first few lists and jump to interfaceInstanceList
-    // This part is very sensitive to the exact order in sleeRoot.h
-    // Based on sleeRoot.h:
-    // callInstanceList, usedCallInstanceList, serviceList, usedServiceList,
-    // serviceKeyList, applicationList, usedApplicationList, dialogList,
-    // interfaceInstanceList ...
-    
-    SnoopLockedList<void*> lists[8]; 
-    SnoopLockedList<SnoopInterfaceInstance> interfaceInstanceList;
-    SnoopLockedList<void*> usedInterfaceInstanceList;
-    SnoopLockedList<SnoopApplicationInstance> applicationInstanceList;
+    // We will scan the memory to find the actual list offsets
+    // but we'll use this as a base.
+    char data[4096]; 
 };
 
 // --- Management Classes ---

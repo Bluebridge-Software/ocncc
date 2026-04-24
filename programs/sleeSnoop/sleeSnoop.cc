@@ -18,12 +18,16 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <vector>
 
 char FileDescriptor::buffer[10240];
 
-// --- Simple Mock Error Logging (No SDK dependency for logging) ---
 #define LOG_ERROR(fmt, ...) printf("[ERROR] " fmt "\n", ##__VA_ARGS__)
 #define LOG_INFO(fmt, ...) printf("[INFO] " fmt "\n", ##__VA_ARGS__)
+
+// Globals for discovered offsets
+static SnoopLockedList<SnoopInterfaceInstance> *g_interfaceList = NULL;
+static SnoopLockedList<SnoopApplicationInstance> *g_applicationList = NULL;
 
 /******************************************************************************
  * ConnectionManager
@@ -68,9 +72,8 @@ SnoopManager::~SnoopManager() { stop(); }
 
 bool SnoopManager::attach() {
   const char *sleeFile = getenv("SLEE_FILE");
-  if (sleeFile == NULL) {
-      sleeFile = "/tmp/slee";
-  }
+  if (sleeFile == NULL)
+    sleeFile = "/IN/service_packages/SLEE/tmp/slee";
 
   key_t key = ftok(sleeFile, 'a');
   if (key == -1) {
@@ -80,39 +83,68 @@ bool SnoopManager::attach() {
 
   int shmid = shmget(key, 0, 0);
   if (shmid == -1) {
-    LOG_ERROR("shmget(0x%lx, 0, 0) failed: %s (Is SLEE really running with this key?)", (long)key, strerror(errno));
+    LOG_ERROR("shmget(0x%lx) failed: %s", (long)key, strerror(errno));
     return false;
   }
 
-  // Try standard SLEE offset first (0x80000000 on Linux)
   void *addr = shmat(shmid, (void *)0x80000000, SHM_RDONLY);
-  if (addr == (void *)-1) {
-    LOG_INFO("shmat with 0x80000000 failed, trying auto-address...");
-    addr = shmat(shmid, NULL, SHM_RDONLY); 
-  }
-
+  if (addr == (void *)-1)
+    addr = shmat(shmid, NULL, SHM_RDONLY);
   if (addr == (void *)-1) {
     LOG_ERROR("shmat failed: %s", strerror(errno));
     return false;
   }
 
-  LOG_INFO("Successfully attached to SLEE shared memory at %p", addr);
   root = (SnoopRoot *)addr;
+  LOG_INFO("Attached to SHM at %p. Scanning for list offsets...", addr);
+
+  // Dynamic Discovery: Look for lists
+  // A SnoopLockedList signature: headElement.next and .prev point to
+  // headElement
+  std::vector<void *> foundLists;
+  uintptr_t *p = (uintptr_t *)addr;
+  for (int i = 1; i < 2000; i++) {
+    uintptr_t currentAddr = (uintptr_t)&p[i];
+    if (p[i + 1] == currentAddr && p[i + 2] == currentAddr &&
+        p[i] == (uintptr_t)&p[i - 1]) {
+      // Found a potential empty list head
+      // backtrack to find the SnoopLockedList start
+      foundLists.push_back((void *)&p[i - 1]);
+      EE / tmp
+    }
+  }
+
+  LOG_INFO("Found %lu potential lists in SHM", foundLists.size());
+  if (foundLists.size() >= 10) {
+    // Interface list is usually the 9th or 10th
+    g_interfaceList = (SnoopLockedList<SnoopInterfaceInstance> *)foundLists[8];
+    g_applicationList =
+        (SnoopLockedList<SnoopApplicationInstance> *)foundLists[10];
+    LOG_INFO("Selected InterfaceList at %p, ApplicationList at %p",
+             g_interfaceList, g_applicationList);
+  } else {
+    LOG_ERROR("Could not identify SLEE lists. Offsets might be wrong.");
+    return false;
+  }
+
   return true;
 }
-
 
 bool SnoopManager::start(const std::string &filename) {
   if (capturing)
     return false;
   pcapFile = fopen(filename.c_str(), "wb");
-  if (!pcapFile)
+  if (!pcapFile) {
+    LOG_ERROR("Failed to open %s for writing: %s", filename.c_str(),
+              strerror(errno));
     return false;
+  }
 
   writePcapHeader();
   capturing = true;
   eventCount = 0;
   seenEvents.clear();
+  LOG_INFO("Started capture to %s", filename.c_str());
   return true;
 }
 
@@ -120,15 +152,19 @@ void SnoopManager::stop() {
   if (pcapFile) {
     fclose(pcapFile);
     pcapFile = NULL;
+    LOG_INFO("Stopped capture");
   }
   capturing = false;
 }
 
 void SnoopManager::setFilter(const std::string &name) {
-  if (name.empty())
+  if (name.empty()) {
     filters.clear();
-  else
+    LOG_INFO("Filters cleared");
+  } else {
     filters.insert(name);
+    LOG_INFO("Added filter: %s", name.c_str());
+  }
 }
 
 void SnoopManager::writePcapHeader() {
@@ -153,17 +189,17 @@ uint32_t simpleHash(const void *data, size_t len) {
 }
 
 void SnoopManager::scrape() {
-  if (!capturing || !root)
+  if (!capturing || !g_interfaceList)
     return;
 
-  // Note: We don't actually lock the semaphores here to remain "silent" and
-  // avoid blocking the SLEE if we crash. This is a "dirty read" snoop.
-
   // 1. Interfaces
-  SnoopInterfaceInstance *ii =
-      root->interfaceInstanceList.list.headElement.next;
-  while (ii && ii != (void *)&root->interfaceInstanceList.list.headElement) {
+  SnoopInterfaceInstance *ii = g_interfaceList->list.headElement.next;
+  while (ii && ii != (void *)&g_interfaceList->list.headElement) {
+    // Try to find interfaceName. We'll use a conservative search if it looks
+    // garbage
     const char *name = ii->interfaceName;
+    if (name[0] < 32 || name[0] > 126)
+      name = "Unknown";
 
     if (!filters.empty() && filters.find(name) == filters.end()) {
       ii = ii->base.next;
@@ -185,23 +221,24 @@ void SnoopManager::scrape() {
   }
 
   // 2. Applications
-  SnoopApplicationInstance *ai =
-      root->applicationInstanceList.list.headElement.next;
-  while (ai && ai != (void *)&root->applicationInstanceList.list.headElement) {
-    SnoopEvent *ev = ai->currentEvent; // Apps often have one active event
-    if (ev) {
-      EventSignature sig = {ev, (size_t)ev->length,
-                            simpleHash(ev->data, (size_t)ev->length)};
-      if (seenEvents.find(sig) == seenEvents.end()) {
-        writeEvent(ev, "AppEvent", 1);
-        seenEvents.insert(sig);
-        eventCount++;
+  if (g_applicationList) {
+    SnoopApplicationInstance *ai = g_applicationList->list.headElement.next;
+    while (ai && ai != (void *)&g_applicationList->list.headElement) {
+      SnoopEvent *ev = ai->currentEvent;
+      if (ev) {
+        EventSignature sig = {ev, (size_t)ev->length,
+                              simpleHash(ev->data, (size_t)ev->length)};
+        if (seenEvents.find(sig) == seenEvents.end()) {
+          writeEvent(ev, "AppEvent", 1);
+          seenEvents.insert(sig);
+          eventCount++;
+        }
       }
+      ai = ai->base.next;
     }
-    ai = ai->base.next;
   }
 
-  if (seenEvents.size() > 5000)
+  if (seenEvents.size() > 10000)
     seenEvents.clear();
 }
 
@@ -236,10 +273,6 @@ void SnoopManager::writeEvent(SnoopEvent *ev, const char *name, int direction) {
   fflush(pcapFile);
 }
 
-std::string SnoopManager::listComponents() {
-  return "LIST command not available in standalone mode (requires offsets)\n";
-}
-
 /******************************************************************************
  * Telnet Server
  *****************************************************************************/
@@ -253,7 +286,9 @@ TelnetListener::TelnetListener(int port, SnoopManager &mgr,
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port);
   addr.sin_addr.s_addr = INADDR_ANY;
-  bind(fileDescriptor, (struct sockaddr *)&addr, sizeof(addr));
+  if (bind(fileDescriptor, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    LOG_ERROR("Failed to bind to port %d", port);
+  }
   listen(fileDescriptor, 5);
   connMgr.add(this);
 }
@@ -268,8 +303,8 @@ TelnetFD::TelnetFD(int sock, SnoopManager &mgr, ConnectionManager &conn)
     : snoopMgr(mgr), connMgr(conn) {
   fileDescriptor = sock;
   connMgr.add(this);
-  std::string welcome = "SLEE Snoop Standalone Terminal\nCommands: START "
-                        "<file>, STOP, STATUS, QUIT\n> ";
+  std::string welcome = "SLEE Snoop Terminal\nCommands: START <file>, STOP, "
+                        "FILTER <name>, CLEAR, STATUS, QUIT\n> ";
   ::write(fileDescriptor, welcome.c_str(), welcome.length());
 }
 
@@ -289,47 +324,62 @@ void TelnetFD::process() {
     return;
   }
   buffer[n] = 0;
-  std::string cmd(buffer);
-  cmd.erase(std::remove(cmd.begin(), cmd.end(), '\r'), cmd.end());
-  cmd.erase(std::remove(cmd.begin(), cmd.end(), '\n'), cmd.end());
 
-  if (cmd.substr(0, 5) == "START") {
-    std::string file = cmd.length() > 6 ? cmd.substr(6) : "snoop.pcap";
-    if (snoopMgr.start(file))
-      write("Started capture\n", 16);
-    else
-      write("Failed to start\n", 16);
-  } else if (cmd == "STOP") {
-    snoopMgr.stop();
-    write("Stopped capture\n", 16);
-  } else if (cmd == "STATUS") {
-    char stat[128];
-    sprintf(stat, "Status: %s, Events: %lu\n",
-            snoopMgr.isActive() ? "Capturing" : "Idle",
-            snoopMgr.getEventCount());
-    write(stat, strlen(stat));
-  } else if (cmd == "QUIT") {
-    delete this;
-    return;
+  std::stringstream ss(buffer);
+  std::string line;
+  while (std::getline(ss, line)) {
+    if (line.empty())
+      continue;
+    if (line.back() == '\r')
+      line.pop_back();
+
+    std::stringstream lss(line);
+    std::string cmd, arg;
+    lss >> cmd >> arg;
+    std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
+
+    if (cmd == "START") {
+      if (snoopMgr.start(arg.empty() ? "snoop.pcap" : arg))
+        write("Started capture\n", 16);
+      else
+        write("Failed to start\n", 16);
+    } else if (cmd == "STOP") {
+      snoopMgr.stop();
+      write("Stopped capture\n", 16);
+    } else if (cmd == "FILTER") {
+      snoopMgr.setFilter(arg);
+      write("Filter set\n", 11);
+    } else if (cmd == "CLEAR") {
+      snoopMgr.setFilter("");
+      write("Filters cleared\n", 16);
+    } else if (cmd == "STATUS") {
+      char stat[128];
+      sprintf(stat, "Status: %s, Events: %llu\n",
+              snoopMgr.isActive() ? "Capturing" : "Idle",
+              (unsigned long long)snoopMgr.getEventCount());
+      write(stat, strlen(stat));
+    } else if (cmd == "QUIT" || cmd == "EXIT") {
+      delete this;
+      return;
+    }
+    write("> ", 2);
   }
-  write("> ", 2);
 }
 
 int main(int argc, char **argv) {
   ConnectionManager conn;
   SnoopManager snoop;
 
-  if (!snoop.attach()) {
-    LOG_ERROR("Failed to attach to SLEE shared memory. Is SLEE running?");
+  if (!snoop.attach())
     return 1;
-  }
 
   TelnetListener telnet(9999, snoop, conn);
-  LOG_INFO("sleeSnoop Standalone: Management port 9999, Startup Successful");
+  LOG_INFO("Snoop Terminal ready on port 9999");
 
   while (true) {
     conn.process();
-    snoop.scrape();
+    if (snoop.isActive())
+      snoop.scrape();
     usleep(10000);
   }
   return 0;
